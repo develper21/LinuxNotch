@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Linux Notch
+Comment=Start the Linux Notch desktop island
+Exec=linux-notch
+Icon=linux-notch
+Terminal=false
+X-GNOME-Autostart-enabled=true
+NoDisplay=true

@@ -1,0 +1,109 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "Linux Notch 0.1.0 source dependency inventory",
+  "documentNamespace": "https://spdx.org/spdxdocs/linux-notch-0.1.0-linux",
+  "creationInfo": {
+    "creators": [
+      "Organization: Linux Notch contributors",
+      "Tool: source dependency inventory"
+    ],
+    "comment": "Native library versions are supplied by the target distribution and must be recorded for each release build."
+  },
+  "packages": [
+    {
+      "name": "linux-notch",
+      "SPDXID": "SPDXRef-LinuxNotch",
+      "versionInfo": "0.1.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "copyrightText": "Copyright (c) Marco Zorn and Linux Notch contributors"
+    },
+    {
+      "name": "PyGObject",
+      "SPDXID": "SPDXRef-PyGObject",
+      "versionInfo": "NOASSERTION",
+      "downloadLocation": "https://gitlab.gnome.org/GNOME/pygobject",
+      "filesAnalyzed": false,
+      "licenseConcluded": "LGPL-2.1-or-later",
+      "licenseDeclared": "LGPL-2.1-or-later",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "name": "GTK",
+      "SPDXID": "SPDXRef-GTK",
+      "versionInfo": "NOASSERTION",
+      "downloadLocation": "https://gitlab.gnome.org/GNOME/gtk",
+      "filesAnalyzed": false,
+      "licenseConcluded": "LGPL-2.1-or-later",
+      "licenseDeclared": "LGPL-2.1-or-later",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "name": "libadwaita",
+      "SPDXID": "SPDXRef-Libadwaita",
+      "versionInfo": "NOASSERTION",
+      "downloadLocation": "https://gitlab.gnome.org/GNOME/libadwaita",
+      "filesAnalyzed": false,
+      "licenseConcluded": "LGPL-2.1-or-later",
+      "licenseDeclared": "LGPL-2.1-or-later",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "name": "gtk4-layer-shell",
+      "SPDXID": "SPDXRef-Gtk4LayerShell",
+      "versionInfo": "NOASSERTION",
+      "downloadLocation": "https://github.com/wmww/gtk4-layer-shell",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "name": "libX11",
+      "SPDXID": "SPDXRef-LibX11",
+      "versionInfo": "NOASSERTION",
+      "downloadLocation": "https://gitlab.freedesktop.org/xorg/lib/libx11",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "name": "GNOME Shell helper extension",
+      "SPDXID": "SPDXRef-GnomeExtension",
+      "versionInfo": "0.1.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "GPL-2.0-or-later",
+      "licenseDeclared": "GPL-2.0-or-later",
+      "copyrightText": "Copyright (c) Linux Notch contributors"
+    },
+    {
+      "name": "Mochi character and Coucou sound effects",
+      "SPDXID": "SPDXRef-CoucouAssets",
+      "versionInfo": "bundled",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "Copyright (c) 2026 Louis Raillé",
+      "comment": "Included and adapted for this Linux Notch integration with distribution permission; see ASSET-ATTRIBUTION.md. Not covered by the application MIT license."
+    }
+  ],
+  "relationships": [
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-LinuxNotch"
+    },
+    {
+      "spdxElementId": "SPDXRef-LinuxNotch",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-CoucouAssets"
+    }
+  ]
+}

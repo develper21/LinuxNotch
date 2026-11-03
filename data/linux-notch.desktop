@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Linux Notch
+GenericName=Linux Notch
+Comment=A native island for your Linux desktop
+Exec=linux-notch
+Icon=linux-notch
+Terminal=false
+Categories=Utility;
+Keywords=island;notch;widget;media;activity;
+X-GNOME-UsesNotifications=true
+StartupNotify=false

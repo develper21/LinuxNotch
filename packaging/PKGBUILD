@@ -1,0 +1,50 @@
+# Maintainer: Linux Notch contributors
+pkgname=linux-notch
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="A native GTK island for Linux desktops"
+arch=('any')
+url="https://github.com/MarcoZorn/lost-island"
+license=('MIT')
+depends=('python>=3.11' 'python-gobject' 'python-cairo' 'gtk4' 'libadwaita'
+         'libpulse')
+optdepends=('networkmanager: connectivity tile and peeks'
+            'upower: battery ring and charge peeks'
+            'cava: audio-reactive equalizer bars'
+            'gtk4-layer-shell: native Wayland layer-shell backend')
+source=("$pkgname-$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+  cd "$srcdir/$pkgname-$pkgver"
+  install -d "$pkgdir/usr/lib/$pkgname" "$pkgdir/usr/bin"
+  cp -r src/linux_notch "$pkgdir/usr/lib/$pkgname/"
+  cat > "$pkgdir/usr/bin/linux-notch" <<'EOF'
+#!/bin/sh
+PYTHONPATH=/usr/lib/linux-notch exec python3 -m linux_notch "$@"
+EOF
+  chmod 755 "$pkgdir/usr/bin/linux-notch"
+  cat > "$pkgdir/usr/bin/notchctl" <<'EOF'
+#!/bin/sh
+PYTHONPATH=/usr/lib/linux-notch exec python3 -m linux_notch.tools.notchctl "$@"
+EOF
+  chmod 755 "$pkgdir/usr/bin/notchctl"
+
+  install -Dm644 data/linux-notch.desktop \
+    "$pkgdir/usr/share/applications/linux-notch.desktop"
+  install -Dm644 data/linux-notch.svg \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/linux-notch.svg"
+  install -Dm644 data/linux-notch.service \
+    "$pkgdir/usr/lib/systemd/user/linux-notch.service"
+  install -Dm644 data/linux-notch-autostart.desktop \
+    "$pkgdir/usr/share/doc/linux-notch/linux-notch-autostart.desktop"
+  install -Dm644 gnome-extension/linux-notch@linuxnotch.org/metadata.json \
+    "$pkgdir/usr/share/gnome-shell/extensions/linux-notch@linuxnotch.org/metadata.json"
+  install -Dm644 gnome-extension/linux-notch@linuxnotch.org/extension.js \
+    "$pkgdir/usr/share/gnome-shell/extensions/linux-notch@linuxnotch.org/extension.js"
+  install -Dm644 gnome-extension/linux-notch@linuxnotch.org/LICENSE \
+    "$pkgdir/usr/share/licenses/$pkgname/gnome-extension/LICENSE"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 ASSET-ATTRIBUTION.md \
+    "$pkgdir/usr/share/licenses/$pkgname/ASSET-ATTRIBUTION.md"
+}

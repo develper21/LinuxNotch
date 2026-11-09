@@ -27,7 +27,7 @@ where = ["src"]
 include = ["linux_notch*"]
 
 [tool.setuptools.package-data]
-"linux_notch.ui" = ["*.css", "*.svg"]
+"linux_notch.ui" = ["*.css"]
 "linux_notch.resources" = ["sounds/*.wav"]
 
 [tool.ruff]

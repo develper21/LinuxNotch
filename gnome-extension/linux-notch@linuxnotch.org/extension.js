@@ -43,9 +43,13 @@ export default class LinuxNotchExtension extends Extension {
         this._fullscreenPolicy = 'hide';
         this._attachedWindow = null;
         this._attachedState = null;
+        this._targetPositionId = 0;
+        this._targetSizeId = 0;
+        this._positioning = false;
         this._hiddenByUs = false;
         this._connections = [];
         this._watchedWindows = new Map();
+        this._syncSource = 0;
         this._locked = false;
         this._dbus = Gio.DBusExportedObject.wrapJSObject(XML, this);
         this._dbus.export(Gio.DBus.session, OBJECT_PATH);
@@ -58,6 +62,7 @@ export default class LinuxNotchExtension extends Extension {
         this._connect(global.display, 'window-created', (_display, window) => {
             this._watchWindow(window);
             this._sync();
+            this._scheduleSync();
         });
         this._connect(Main.screenShield, 'locked-changed', () => {
             const locked = Main.screenShield.locked;
@@ -76,6 +81,7 @@ export default class LinuxNotchExtension extends Extension {
         this._monitor = monitor;
         this._marginTop = Math.max(0, marginTop);
         this._sync();
+        this._scheduleSync();
     }
 
     SetSize(width, height) {
@@ -104,6 +110,20 @@ export default class LinuxNotchExtension extends Extension {
         this._watchedWindows.set(window, id);
     }
 
+    _scheduleSync() {
+        if (!this._appId || this._attachedWindow || this._syncSource)
+            return;
+        let attempts = 40;
+        this._syncSource = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 50, () => {
+            this._sync();
+            if (this._attachedWindow || --attempts === 0) {
+                this._syncSource = 0;
+                return GLib.SOURCE_REMOVE;
+            }
+            return GLib.SOURCE_CONTINUE;
+        });
+    }
+
     _findTarget() {
         const windows = global.display.get_tab_list(Meta.TabList.NORMAL_ALL, null);
         return windows.find(window => {
@@ -125,11 +145,17 @@ export default class LinuxNotchExtension extends Extension {
                 this._attachedState = {
                     x: frame.x,
                     y: frame.y,
-                    width: frame.width,
-                    height: frame.height,
                     wasAbove: target.is_above?.() ?? false,
                 };
                 target.make_above();
+                this._targetPositionId = target.connect('position-changed', () => {
+                    if (!this._positioning)
+                        this._sync();
+                });
+                this._targetSizeId = target.connect('size-changed', () => {
+                    if (!this._positioning)
+                        this._sync();
+                });
             }
         }
         if (!target)
@@ -145,10 +171,17 @@ export default class LinuxNotchExtension extends Extension {
         const geometry = monitors[monitorIndex];
         if (!geometry)
             return;
-        const x = Math.round(geometry.x + (geometry.width - this._width) / 2);
+
+        const frame = target.get_frame_rect();
+        const width = frame.width > 0 ? frame.width : this._width;
+        const x = Math.round(geometry.x + (geometry.width - width) / 2);
         const y = Math.round(geometry.y + this._marginTop);
-        target.move_frame(false, x, y);
-        target.resize(false, this._width, this._height);
+
+        if (frame.x !== x || frame.y !== y) {
+            this._positioning = true;
+            target.move_frame(false, x, y);
+            this._positioning = false;
+        }
 
         const fullscreen = global.display.get_tab_list(
             Meta.TabList.NORMAL_ALL, null).some(window =>
@@ -172,17 +205,22 @@ export default class LinuxNotchExtension extends Extension {
         const state = this._attachedState;
         if (!target)
             return;
+        if (this._targetPositionId)
+            target.disconnect(this._targetPositionId);
+        if (this._targetSizeId)
+            target.disconnect(this._targetSizeId);
         const actor = target.get_compositor_private();
         if (this._hiddenByUs)
             actor?.show();
         if (state && !state.wasAbove)
             target.unmake_above();
-        if (state) {
-            target.resize(false, state.width, state.height);
+        if (state)
             target.move_frame(false, state.x, state.y);
-        }
         this._attachedWindow = null;
         this._attachedState = null;
+        this._targetPositionId = 0;
+        this._targetSizeId = 0;
+        this._positioning = false;
         this._hiddenByUs = false;
     }
 
@@ -192,6 +230,10 @@ export default class LinuxNotchExtension extends Extension {
     }
 
     disable() {
+        if (this._syncSource) {
+            GLib.source_remove(this._syncSource);
+            this._syncSource = 0;
+        }
         for (const [object, id] of this._connections)
             object.disconnect(id);
         this._connections = [];

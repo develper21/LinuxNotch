@@ -15,8 +15,15 @@ the original Lost Island copyright and MIT license are retained.
   client. Activities are per-D-Bus-client, bounded, plain-text data with
   quotas and expiration.
 - Animated Mochi character moods, seasonal outfits, and 29 bundled sound
-  effects. Select every available character look from the `Notchiii` button;
-  click Mochi for reactions. Configure sound volume and previews in Settings.
+  effects. The collapsed island shows Mochi only; choose his outfit from the
+  expanded Mochi feature, and configure sound volume and previews in Settings.
+  The expanded island also includes clipboard history and Spotify.
+- Clipboard history is opt-in, local-only, and paused by default; text and
+  bounded image history can be pinned, copied back, or cleared. GTK clipboard
+  access depends on desktop permissions, so Wayland monitoring may be limited.
+- Spotify controls use the existing MPRIS session-bus integration and need no
+  Spotify developer credentials. When it is not installed, the feature links
+  to Flathub.
 - `systemd --user` autostart, desktop entry, Debian package build, and an Arch
   local PKGBUILD.
 - Claude usage access is opt-in; its credential/API path is not started by
@@ -70,6 +77,10 @@ system installer, then enable it with GNOME Extensions. Log out and back in
 when GNOME requires it. The extension's GTK-window positioning relies on
 private Mutter APIs; test every GNOME Shell release before treating it as
 supported.
+
+As a temporary XWayland alternative, run `GDK_BACKEND=x11 linux-notch`. This
+uses the X11 backend for top-center placement when an XWayland display is
+available; GNOME Shell helper remains the native Wayland path.
 
 ### Login autostart
 

@@ -12,8 +12,7 @@ GTK4 UI
   └─ Activity API D-Bus service
 Core
   ├─ activity validation, ownership, quotas, expiry
-  ├─ event bus and state store
-  └─ capability descriptions
+  └─ desktop capability descriptions
 Desktop compatibility
   ├─ gtk4-layer-shell (Wayland layer-shell compositors)
   ├─ GNOME Shell helper (GNOME Wayland)

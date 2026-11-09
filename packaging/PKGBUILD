@@ -10,7 +10,6 @@ depends=('python>=3.11' 'python-gobject' 'python-cairo' 'gtk4' 'libadwaita'
          'libpulse')
 optdepends=('networkmanager: connectivity tile and peeks'
             'upower: battery ring and charge peeks'
-            'cava: audio-reactive equalizer bars'
             'gtk4-layer-shell: native Wayland layer-shell backend')
 source=("$pkgname-$pkgver.tar.gz")
 sha256sums=('SKIP')

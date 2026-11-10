@@ -2,12 +2,11 @@
 
 Primary source: Anthropic's usage endpoint, called with the OAuth token Claude
 Code already stored locally (~/.claude/.credentials.json) — the same figures
-`/usage` shows, fetched directly so the face is live without needing a
+`/usage` shows, fetched directly so the module is live without needing a
 terminal session open. Fallback: the cache the statusLine hook writes (see
 linux_notch/claude_hook.py) for when the token is missing or expired.
 
-The fetch runs on a background thread on a timer while the claude face is on
-screen; nothing runs when the face isn't shown.
+The fetch runs on a background thread on a timer while the service is started.
 """
 
 from __future__ import annotations

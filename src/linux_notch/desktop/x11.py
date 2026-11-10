@@ -29,6 +29,8 @@ class X11Backend:
         "_NET_WM_STATE_STICKY",
         "_NET_WM_STATE_SKIP_TASKBAR",
         "_NET_WM_STATE_SKIP_PAGER",
+        "_NET_WM_ALLOWED_ACTIONS",
+        "_NET_WM_ACTION_ABOVE",
         "ATOM",
     )
 
@@ -59,6 +61,8 @@ class X11Backend:
         self._window_id = 0
         self._map_handler = 0
         self._monitor_handler = 0
+        self._tick_handler = 0
+        self._last_width = 0
         self._monitor_callback: Callable[[], None] | None = None
         self._config: dict = {}
         self._shape = None
@@ -125,10 +129,22 @@ class X11Backend:
     def attach(self, window: object, config: dict) -> None:
         self._window = window
         self._config = config
+        self._last_width = 0
+        if not self._tick_handler and hasattr(window, "add_tick_callback"):
+            self._tick_handler = window.add_tick_callback(self._on_tick)
         if not self._map_handler:
             self._map_handler = window.connect("map", lambda *_args: self._apply_hints())
         if window.get_mapped():
             self._apply_hints()
+
+    def _on_tick(self, widget: Any, _frame_clock: Any) -> bool:
+        if self._window is None or not self._window_id:
+            return True
+        width = widget.get_width()
+        if width > 0 and width != self._last_width:
+            self._last_width = width
+            self._move_to_monitor()
+        return True
 
     def _apply_hints(self) -> None:
         if self._window is None:
@@ -159,6 +175,11 @@ class X11Backend:
                 atoms["_NET_WM_STATE_SKIP_TASKBAR"],
                 atoms["_NET_WM_STATE_SKIP_PAGER"],
             ],
+        )
+        self._set_atom_list(
+            atoms["_NET_WM_ALLOWED_ACTIONS"],
+            atoms["ATOM"],
+            [atoms["_NET_WM_ACTION_ABOVE"]],
         )
         self._move_to_monitor()
 
@@ -242,12 +263,16 @@ class X11Backend:
             self._monitor_callback()
 
     def shutdown(self) -> None:
+        if self._window is not None and self._tick_handler:
+            self._window.remove_tick_callback(self._tick_handler)
         if self._window is not None and self._map_handler:
             self._window.disconnect(self._map_handler)
         if self._window is not None and self._monitor_handler:
             self._window.get_display().get_monitors().disconnect(self._monitor_handler)
         self._window = None
         self._window_id = 0
+        self._tick_handler = 0
+        self._last_width = 0
         self._map_handler = 0
         self._monitor_handler = 0
         self._monitor_callback = None

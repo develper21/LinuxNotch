@@ -13,6 +13,24 @@ try:
 except OSError:
     pass
 
+
+def _ensure_backend_env() -> None:
+    session = os.environ.get("XDG_SESSION_TYPE", "").lower()
+    if session == "wayland" and "GDK_BACKEND" not in os.environ:
+        from linux_notch.desktop.layer_shell import LayerShellBackend
+
+        if not LayerShellBackend.is_supported():
+            from linux_notch.desktop.gnome import GnomeBackend
+
+            if not GnomeBackend.helper_available():
+                from linux_notch.desktop.x11 import X11Backend
+
+                if X11Backend.usable():
+                    os.environ["GDK_BACKEND"] = "x11"
+
+
+_ensure_backend_env()
+
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -25,9 +43,8 @@ from linux_notch.activity.dbus_service import ActivityDBusService  # noqa: E402
 from linux_notch.desktop import choose_backend  # noqa: E402
 from linux_notch.services.audio import AudioService  # noqa: E402
 from linux_notch.services.bluetooth import BluetoothService  # noqa: E402
-from linux_notch.services.cava import CavaService  # noqa: E402
+from linux_notch.services.clipboard import ClipboardHistoryService  # noqa: E402
 from linux_notch.services.claude_usage import ClaudeUsageService  # noqa: E402
-from linux_notch.services.lyrics import LyricsService  # noqa: E402
 from linux_notch.services.mpris import MprisService  # noqa: E402
 from linux_notch.services.network import NetworkService  # noqa: E402
 from linux_notch.services.notify import NotifyService  # noqa: E402
@@ -48,17 +65,16 @@ class LostIsland(Adw.Application):
         )
         self.win: Gtk.Window | None = None
         self.island: Island | None = None
-        self.settings_win = None
         self._css_provider: Gtk.CssProvider | None = None
         self._backend = None
         self._activity_service: ActivityDBusService | None = None
         for opt, short, desc in (
             ("toggle", "t", "Expand/collapse the island"),
-            ("settings", "s", "Open the settings window"),
+            ("settings", "s", "Open settings in the island"),
             ("quit", "q", "Quit a running instance"),
             ("version", "v", "Print version"),
             ("setup-claude-usage", "\0",
-             "Install the Claude Code hook that feeds the claude face"),
+             "Install the Claude Code hook for the usage module"),
             ("remove-claude-usage", "\0",
              "Remove the Claude Code usage hook"),
         ):
@@ -108,6 +124,7 @@ class LostIsland(Adw.Application):
         if self.island:
             latest = activities[-1].data if activities else None
             self.island.pill.show_activity(latest)
+            self.island.show_activity(latest)
 
     def _on_monitors_changed(self):
         if self._backend and self.win:
@@ -124,13 +141,14 @@ class LostIsland(Adw.Application):
         self.win.add_css_class("island-window")
 
         self._backend = choose_backend()
+        print(f"[linux-notch] Desktop backend selected: {self._backend.name}", flush=True)
         self._backend.attach(self.win, {**self.cfg, "app_id": APP_ID})
         self._backend.on_monitors_changed(self._on_monitors_changed)
 
         self.island = Island(self.cfg, self.media, self.power,
                              weather=self.weather, system=self.system,
-                             on_settings=self.open_settings, cava=self.cava,
-                             lyrics=self.lyrics, claude=self.claude)
+                             on_settings=self.apply_config,
+                             clipboard=self.clipboard)
         self._wire_services()
         self.win.set_child(self.island)
         self.win.present()
@@ -142,11 +160,8 @@ class LostIsland(Adw.Application):
                 display, self._css_provider)
         provider = Gtk.CssProvider()
         accent = self.cfg.get("accent", "#ff9f0a")
-        opacity = min(1.0, max(0.3, float(self.cfg.get("opacity", 0.97))))
         with open(CSS_PATH) as f:
-            css = (f"@define-color accent {accent};\n"
-                   f"@define-color island_bg rgba(12, 12, 14, {opacity});\n"
-                   + f.read())
+            css = f"@define-color accent {accent};\n" + f.read()
         provider.load_from_string(css)
         Gtk.StyleContext.add_provider_for_display(
             display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
@@ -155,15 +170,9 @@ class LostIsland(Adw.Application):
     # -- settings ----------------------------------------------------------
 
     def open_settings(self):
-        from linux_notch.ui.settings import SettingsWindow
-        if self.settings_win:
-            self.settings_win.present()
-            return
-        self.settings_win = SettingsWindow(self.cfg, self.apply_config)
-        self.settings_win.connect(
-            "close-request",
-            lambda *_: (setattr(self, "settings_win", None), False)[1])
-        self.settings_win.present()
+        if self.island:
+            self.island.expand()
+            self.island.expanded.show_page("settings")
 
     def apply_config(self, structural: bool = False):
         """Called by the settings window after each change."""
@@ -174,15 +183,14 @@ class LostIsland(Adw.Application):
         if self._backend and self.win:
             self._backend.attach(self.win, {**self.cfg, "app_id": APP_ID})
         if self.island:
+            self.island.set_opacity(float(self.cfg.get("opacity", 0.97)))
             self.island.pill.mochi.outfit_changed()
             self.island.on_media_changed()
             self.island.expanded.refresh_battery()
-            self.island.pill.show_battery(
-                self.power.percentage, self.power.charging)
 
     def rebuild(self):
-        if self.cava:
-            self.cava.stop()
+        if self.clipboard:
+            self.clipboard.set_recording(False)
         if self._backend:
             self._backend.shutdown()
             self._backend = None
@@ -196,11 +204,11 @@ class LostIsland(Adw.Application):
 
     def _build_services(self):
         mods = self.cfg.get("modules", {})
-        self.media = MprisService() if mods.get("music", True) else _NullMedia()
-        self.cava = CavaService() if mods.get("music", True) else None
-        self.lyrics = (LyricsService()
-                       if mods.get("music", True) and mods.get("lyrics", True)
-                       else None)
+        self.media = (
+            MprisService()
+            if mods.get("music", True) or mods.get("spotify", True)
+            else _NullMedia()
+        )
         self.power = PowerService()
         self.audio = AudioService() if mods.get("volume_osd", True) else None
         self.notifier = NotifyService() if mods.get("notifications", True) else None
@@ -215,15 +223,19 @@ class LostIsland(Adw.Application):
             if mods.get("claude_usage", False)
             else None
         )
+        self.clipboard = None
+        if mods.get("clipboard", True):
+            display = Gdk.Display.get_default()
+            clipboard = display.get_clipboard() if display else None
+            self.clipboard = ClipboardHistoryService(clipboard)
 
     def _wire_services(self):
         isl = self.island
         if isinstance(self.media, MprisService):
             self.media.connect("changed", lambda *_: isl.on_media_changed())
             self.media.connect("art-ready", lambda *_: isl.on_media_changed())
-        self.power.connect("changed", lambda *_: (
-            isl.expanded.refresh_battery(),
-            isl.pill.show_battery(self.power.percentage, self.power.charging)))
+        self.power.connect(
+            "changed", lambda *_: isl.expanded.refresh_battery())
         if self.cfg.get("modules", {}).get("battery", True):
             self.power.connect(
                 "plug-event",
@@ -252,18 +264,16 @@ class LostIsland(Adw.Application):
                 "changed",
                 lambda _s, dev, up, batt: (
                     isl.show_peek(isl.peek.show_bluetooth, dev, up),
-                    isl.expanded.refresh_bluetooth(dev, up, batt),
-                    isl.pill.show_bluetooth(dev, up, batt)))
+                    isl.expanded.refresh_bluetooth(dev, up, batt)))
             isl.expanded.refresh_bluetooth(
-                self.bluetooth.device, self.bluetooth.connected,
-                self.bluetooth.battery)
-            isl.pill.show_bluetooth(
                 self.bluetooth.device, self.bluetooth.connected,
                 self.bluetooth.battery)
         else:
             isl.expanded.refresh_bluetooth("", False, -1)
 
     def do_shutdown(self):
+        if self.clipboard:
+            self.clipboard.set_recording(False)
         if self._activity_service:
             self._activity_service.stop()
             self._activity_service = None

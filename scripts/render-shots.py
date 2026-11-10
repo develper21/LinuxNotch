@@ -21,7 +21,8 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("GdkX11", "4.0")
-from gi.repository import Gdk, GdkX11, GLib, Gtk  # noqa: E402
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gdk, GdkX11, GLib, Gtk  # noqa: E402
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -187,6 +188,9 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     paint_art()
     Gtk.init()
+    Adw.init()
+    Adw.StyleManager.get_default().set_color_scheme(
+        Adw.ColorScheme.FORCE_DARK)
     # match the desktop the app was designed on; Xvfb defaults to a bare theme
     settings = Gtk.Settings.get_default()
     if settings:
@@ -195,11 +199,6 @@ def main():
 
     # idle pill
     snap(Pill(CFG), "pill", 26, 0.0)
-
-    # music pill — title only, the artist stays in the card
-    pill = Pill(CFG)
-    pill.show_music("Halfway to Nowhere", ART, True)
-    snap(pill, "music-pill", 26, 0.3)
 
     # volume peek
     peek = Peek()
@@ -229,14 +228,9 @@ def main():
     snap(exp, "expanded", 34, 0.5, expanded=True)
 
     # settings window
-    gi.require_version("Adw", "1")
-    from gi.repository import Adw
-    from linux_notch.ui.settings import SettingsWindow
-    Adw.init()
-    Adw.StyleManager.get_default().set_color_scheme(
-        Adw.ColorScheme.FORCE_DARK)
-    win = SettingsWindow(dict(config.DEFAULTS), lambda *_: None)
-    snap_window(win, "settings", 14, 0.2)
+    from linux_notch.ui.settings import SettingsPanel
+    panel = SettingsPanel(dict(config.DEFAULTS), lambda *_: None)
+    snap(panel, "settings", 14, 0.2, expanded=True)
 
 
 if __name__ == "__main__":

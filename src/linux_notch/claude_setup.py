@@ -1,9 +1,9 @@
 """Install / remove the Claude Code statusLine hook.
 
-The claude face needs live usage data. Claude Code hands that to a statusLine
-command, so we drop a standalone copy of the hook next to the user's config
-and register it in ~/.claude/settings.json. No login, no API — the data rides
-in on stdin. settings.json is backed up before it's touched.
+Claude Code hands usage data to a statusLine command, so we drop a standalone
+copy of the hook next to the user's config and register it in
+~/.claude/settings.json. No login, no API — the data rides in on stdin.
+settings.json is backed up before it's touched.
 """
 
 from __future__ import annotations
@@ -64,19 +64,11 @@ def install() -> str:
     with open(SETTINGS, "w") as f:
         json.dump(settings, f, indent=2)
 
-    # make sure the face is actually in the cycle
-    cfg = config.load()
-    faces = cfg.get("pill_faces", [])
-    if "claude" not in faces:
-        faces.append("claude")
-        cfg["pill_faces"] = faces
-        config.save(cfg)
-
     return ("Claude usage hook installed.\n"
             f"  hook:     {HOOK_DEST}\n"
             f"  statusLine registered in {SETTINGS}\n"
             "Open a Claude Code session once so the first numbers land, then "
-            "cycle the pill to the Claude face.")
+            "enable the Claude usage module in Linux Notch Settings.")
 
 
 def uninstall() -> str:

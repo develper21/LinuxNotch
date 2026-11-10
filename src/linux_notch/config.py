@@ -26,27 +26,16 @@ DEFAULTS = {
     # "top" stays below fullscreen apps, "overlay" is always on top
     "layer": "top",
     "fullscreen_policy": "hide",
-    # show the clock in the idle pill
-    "idle_clock": True,
-    # current collapsed face; cycled by click / swipe
-    "pill_face": "auto",
-    # faces included in the cycle, in order; available: auto, status,
-    # lyrics, title, compact, clock, battery, weather, bluetooth, claude
-    "pill_faces": ["auto", "status", "lyrics", "title", "clock"],
-    # how often (seconds) the claude face refreshes its usage figure
-    # (the usage endpoint rate-limits fast polling, so keep this gentle)
+    # how often (seconds) the Claude usage module refreshes
     "claude_refresh": 60,
-    # what a left click on the pill does: "cycle" faces or "expand" the card
-    # (right click always expands)
-    "click_action": "cycle",
     # island background opacity, 0.3 .. 1.0
     "opacity": 0.97,
     # 24h clock
     "clock_24h": True,
-    # small battery readout in the pill while charging or below 30%
-    "pill_battery": True,
     # seconds a peek (volume / battery / notification) stays visible
     "peek_seconds": 2.2,
+    # clipboard history is opt-in and stored only on this device
+    "clipboard_recording": False,
     # modules that may take over the island
     "modules": {
         "music": True,
@@ -58,7 +47,8 @@ DEFAULTS = {
         "weather": True,
         "system": True,
         "toggles": True,
-        "lyrics": True,
+        "clipboard": True,
+        "spotify": True,
         # Claude usage reads Claude Code credentials only when explicitly enabled.
         "claude_usage": False,
     },

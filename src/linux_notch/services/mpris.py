@@ -20,6 +20,7 @@ from linux_notch import config
 MPRIS_PREFIX = "org.mpris.MediaPlayer2."
 PLAYER_IFACE = "org.mpris.MediaPlayer2.Player"
 OBJECT_PATH = "/org/mpris/MediaPlayer2"
+SPOTIFY_BUS_NAME = "org.mpris.MediaPlayer2.spotify"
 
 
 class Player:
@@ -49,6 +50,7 @@ class MprisService(GObject.Object):
         "changed": (GObject.SignalFlags.RUN_FIRST, None, ()),
         # emitted when album art for the active player finished loading
         "art-ready": (GObject.SignalFlags.RUN_FIRST, None, ()),
+        "error": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
     }
 
     def __init__(self):
@@ -226,10 +228,35 @@ class MprisService(GObject.Object):
     def _call(self, method: str, params=None):
         if not self.active:
             return
+        self._call_player(self.active.bus_name, method, params)
+
+    @property
+    def spotify_player(self) -> Player | None:
+        return self._players.get(SPOTIFY_BUS_NAME)
+
+    def _call_player(self, bus_name: str, method: str, params=None):
+        if bus_name not in self._players:
+            return
         self._bus.call(
-            self.active.bus_name, OBJECT_PATH, PLAYER_IFACE, method, params,
-            None, Gio.DBusCallFlags.NONE, -1, None, None,
+            bus_name, OBJECT_PATH, PLAYER_IFACE, method, params,
+            None, Gio.DBusCallFlags.NONE, -1, None,
+            self._on_control_done,
         )
+
+    def _on_control_done(self, bus, result, _user_data):
+        try:
+            bus.call_finish(result)
+        except GLib.Error as error:
+            self.emit("error", str(error))
+
+    def play_pause_for(self, bus_name: str):
+        self._call_player(bus_name, "PlayPause")
+
+    def next_for(self, bus_name: str):
+        self._call_player(bus_name, "Next")
+
+    def previous_for(self, bus_name: str):
+        self._call_player(bus_name, "Previous")
 
     def play_pause(self):
         self._call("PlayPause")
@@ -249,8 +276,13 @@ class MprisService(GObject.Object):
         """Async position fetch in µs; calls callback(pos_us)."""
         if not self.active:
             return
+        self.get_position_for(self.active.bus_name, callback)
+
+    def get_position_for(self, bus_name: str, callback):
+        if bus_name not in self._players:
+            return
         self._bus.call(
-            self.active.bus_name, OBJECT_PATH,
+            bus_name, OBJECT_PATH,
             "org.freedesktop.DBus.Properties", "Get",
             GLib.Variant("(ss)", (PLAYER_IFACE, "Position")),
             GLib.VariantType("(v)"), Gio.DBusCallFlags.NONE, -1, None,

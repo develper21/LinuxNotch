@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-import time
 from datetime import date
 from typing import Any
 
@@ -11,7 +10,6 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
-from linux_notch import config as user_config  # noqa: E402
 from linux_notch.services.sounds import play_sound  # noqa: E402
 
 MOODS = {
@@ -488,14 +486,11 @@ class MochiWidget(Gtk.DrawingArea):
         self.set_content_width(58)
         self.set_content_height(54)
         self.set_draw_func(self._draw)
-        self.set_tooltip_text("Mochi: click for a reaction")
+        self.set_tooltip_text("Click to open Linux Notch")
         self._mood = "idle"
         self._activity_mood = "idle"
-        self._temporary_mood: str | None = None
         self._phase = 0.0
         self._timer = 0
-        self._tap_times: list[float] = []
-        self._reaction_token = 0
         self._last_activity_key: tuple[Any, ...] | None = None
         self._last_progress: Any = None
 
@@ -504,13 +499,6 @@ class MochiWidget(Gtk.DrawingArea):
         motion = Gtk.EventControllerMotion()
         motion.connect("enter", self._on_enter)
         self.add_controller(motion)
-
-        tap = Gtk.GestureClick()
-        tap.set_button(1)
-        tap.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-        tap.connect("released", self._on_tap)
-        self.add_controller(tap)
-
 
     @property
     def outfit(self) -> str:
@@ -537,34 +525,6 @@ class MochiWidget(Gtk.DrawingArea):
     def _on_enter(self, *_args) -> None:
         play_sound("hover", self.cfg)
 
-    def _on_tap(self, gesture, _presses, _x, _y) -> None:
-        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
-        now = time.monotonic()
-        self._tap_times = [stamp for stamp in self._tap_times if now - stamp <= 1.7]
-        self._tap_times.append(now)
-        if len(self._tap_times) >= 3:
-            self._tap_times.clear()
-            self._set_temporary_mood("dizzy", "slap", "dizzy")
-        else:
-            self._set_temporary_mood("annoyed", "slap", "annoyed")
-
-    def _set_temporary_mood(self, mood: str, *sounds: str) -> None:
-        self._reaction_token += 1
-        token = self._reaction_token
-        self._temporary_mood = mood
-        self._mood = mood
-        self.queue_draw()
-        for sound in sounds:
-            play_sound(sound, self.cfg)
-        GLib.timeout_add(850, self._restore_mood, token)
-
-    def _restore_mood(self, token: int) -> bool:
-        if token == self._reaction_token:
-            self._temporary_mood = None
-            self._mood = self._activity_mood
-            self.queue_draw()
-        return GLib.SOURCE_REMOVE
-
     def show_activity(self, activity: dict[str, Any] | None) -> None:
         mood = mood_for_activity(activity)
         key = None if activity is None else (
@@ -578,8 +538,7 @@ class MochiWidget(Gtk.DrawingArea):
         self._activity_mood = mood
         self._last_activity_key = key
         self._last_progress = activity.get("progress") if activity else None
-        if self._temporary_mood is None:
-            self._mood = mood
+        self._mood = mood
         if mood != previous_mood:
             sound = sound_for_activity(activity, mood) if activity else None
             if sound:
@@ -597,95 +556,10 @@ class MochiWidget(Gtk.DrawingArea):
             raise ValueError(f"Unknown Mochi mood: {mood}")
         old_mood = self._activity_mood
         self._activity_mood = mood
-        if self._temporary_mood is None:
-            self._mood = mood
+        self._mood = mood
         if sound and mood != old_mood and mood in _MOOD_SOUNDS:
             play_sound(_MOOD_SOUNDS[mood], self.cfg)
         self.queue_draw()
 
     def outfit_changed(self) -> None:
         self.queue_draw()
-
-
-class NotchiiiButton(Gtk.MenuButton):
-    def __init__(self, cfg: dict, on_change=None):
-        super().__init__(label="Notchiii")
-        self.cfg = cfg
-        self.on_change = on_change
-        self.add_css_class("notchiii-button")
-        self.set_tooltip_text("Choose Mochi's character look")
-
-        popover = Gtk.Popover()
-        popover.set_has_arrow(True)
-        popover.set_position(Gtk.PositionType.BOTTOM)
-
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        content.set_margin_top(8)
-        content.set_margin_bottom(8)
-        content.set_margin_start(8)
-        content.set_margin_end(8)
-
-        heading = Gtk.Label(label="Choose your Mochi")
-        heading.add_css_class("heading")
-        heading.set_halign(Gtk.Align.START)
-        heading.set_margin_start(8)
-        heading.set_margin_bottom(4)
-        content.append(heading)
-
-        for outfit, label in OUTFITS:
-            row = Gtk.Button()
-            row.add_css_class("flat")
-            row.set_halign(Gtk.Align.FILL)
-            row.set_tooltip_text(label)
-            item = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-
-            preview = Gtk.DrawingArea()
-            preview.set_content_width(54)
-            preview.set_content_height(44)
-            preview.set_draw_func(
-                lambda _area, cr, width, height, look=outfit:
-                    draw_mochi(cr, width, height, "idle", look, 0)
-            )
-            item.append(preview)
-
-            name = Gtk.Label(label=label)
-            name.set_halign(Gtk.Align.START)
-            name.set_hexpand(True)
-            item.append(name)
-
-            marker = Gtk.Label(label="✓" if outfit == self.selected_outfit else "")
-            marker.set_width_chars(2)
-            marker.add_css_class("accent")
-            item.append(marker)
-
-            row.set_child(item)
-            row.connect("clicked", self._select, outfit, popover)
-            content.append(row)
-
-        popover.set_child(content)
-        self.set_popover(popover)
-        self._popover = popover
-
-    @property
-    def selected_outfit(self) -> str:
-        value = self.cfg.get("mochi_outfit", "auto")
-        return value if value in {key for key, _label in OUTFITS} else "auto"
-
-    def _select(self, _button, outfit: str, popover: Gtk.Popover) -> None:
-        self.cfg["mochi_outfit"] = outfit
-        user_config.save(self.cfg)
-        play_sound("pop", self.cfg)
-        if self.on_change is not None:
-            self.on_change()
-        self._refresh_selection()
-        popover.popdown()
-
-    def _refresh_selection(self) -> None:
-        child = self._popover.get_child()
-        row = child.get_first_child()
-        row = row.get_next_sibling()
-        for outfit, _label in OUTFITS:
-            item = row.get_child()
-            marker = item.get_last_child()
-            marker.set_label("✓" if outfit == self.selected_outfit else "")
-            row = row.get_next_sibling()

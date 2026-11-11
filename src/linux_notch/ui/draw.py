@@ -1,85 +1,10 @@
-"""Hand-drawn cairo widgets: the equalizer bars and the battery ring.
-
-Both are strictly demand-driven: the EQ animates on a 80 ms timer only while
-music is actually playing *and* the widget is mapped; the ring redraws only
-when UPower reports a change.
-"""
+"""Hand-drawn Cairo widget for the battery ring."""
 
 from __future__ import annotations
 
 import math
 
-from gi.repository import GLib, Gtk
-
-
-class EqBars(Gtk.DrawingArea):
-    """Five bouncing bars, the universal 'something is playing' glyph.
-
-    With cava feeding real spectrum levels through `feed()`, the bars follow
-    the actual music; without it they fall back to a gentle sine animation.
-    """
-
-    BAR_W = 3.0
-    GAP = 2.5
-    N = 5
-
-    def __init__(self, color=(1.0, 1.0, 1.0)):
-        super().__init__()
-        self.color = color
-        self._phase = 0.0
-        self._playing = False
-        self._timer = 0
-        self._levels: list[float] | None = None
-        self._external = False
-        width = int(self.N * self.BAR_W + (self.N - 1) * self.GAP)
-        self.set_content_width(width)
-        self.set_content_height(14)
-        self.set_draw_func(self._draw)
-        self.connect("map", lambda *_: self._sync_timer())
-        self.connect("unmap", lambda *_: self._sync_timer())
-
-    def set_playing(self, playing: bool):
-        self._playing = playing
-        self._sync_timer()
-        self.queue_draw()
-
-    def set_external(self, external: bool):
-        """True while a live level source (cava) is driving the bars."""
-        self._external = external
-        self._levels = None
-        self._sync_timer()
-
-    def feed(self, levels: list[float]):
-        self._levels = levels
-        self.queue_draw()
-
-    def _sync_timer(self):
-        want = self._playing and self.get_mapped() and not self._external
-        if want and not self._timer:
-            self._timer = GLib.timeout_add(80, self._tick)
-        elif not want and self._timer:
-            GLib.source_remove(self._timer)
-            self._timer = 0
-
-    def _tick(self):
-        self._phase += 0.55
-        self.queue_draw()
-        return True
-
-    def _draw(self, area, cr, w, h):
-        cr.set_source_rgb(*self.color)
-        for i in range(self.N):
-            if self._playing and self._external and self._levels:
-                frac = 0.15 + 0.85 * self._levels[i]
-            elif self._playing:
-                frac = 0.35 + 0.65 * abs(math.sin(self._phase + i * 1.1))
-            else:
-                frac = 0.25
-            bh = h * frac
-            x = i * (self.BAR_W + self.GAP)
-            y = (h - bh) / 2
-            _rounded_rect(cr, x, y, self.BAR_W, bh, self.BAR_W / 2)
-            cr.fill()
+from gi.repository import Gtk
 
 
 class BatteryRing(Gtk.DrawingArea):
@@ -128,13 +53,3 @@ def pick_icon(widget, *names: str) -> str:
         if theme.has_icon(name):
             return name
     return names[-1]
-
-
-def _rounded_rect(cr, x, y, w, h, r):
-    r = min(r, w / 2, h / 2)
-    cr.new_sub_path()
-    cr.arc(x + w - r, y + r, r, -math.pi / 2, 0)
-    cr.arc(x + w - r, y + h - r, r, 0, math.pi / 2)
-    cr.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
-    cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
-    cr.close_path()

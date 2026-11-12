@@ -49,9 +49,12 @@ DEFAULTS = {
         "toggles": True,
         "clipboard": True,
         "spotify": True,
+        "todos": True,
         # Claude usage reads Claude Code credentials only when explicitly enabled.
         "claude_usage": False,
     },
+    # ToDo tasks are stored locally in the user config.
+    "todos": [],
     # weather location ("" = auto by IP); any wttr.in place name works
     "weather_city": "",
     # accent color used for progress bars and highlights

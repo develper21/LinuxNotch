@@ -211,8 +211,10 @@ class X11Backend:
             if candidate.get_connector() == wanted:
                 monitor = candidate
                 break
+        if monitor is None and monitors.get_n_items():
+            monitor = monitors.get_item(0)
         if monitor is None:
-            monitor = display.get_primary_monitor() or monitors.get_item(0)
+            return
         geometry = monitor.get_geometry()
         width = self._window.get_width()
         x = geometry.x + max(0, (geometry.width - width) // 2)

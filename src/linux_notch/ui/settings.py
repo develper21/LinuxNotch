@@ -1,5 +1,4 @@
-"""Preferences window. Every change applies and persists instantly;
-structural changes (modules) rebuild the island in place."""
+"""Settings panel embedded in the expanded island."""
 
 from __future__ import annotations
 
@@ -7,25 +6,9 @@ from gi.repository import Adw, Gdk, Gtk
 
 from linux_notch import config
 from linux_notch.services.sounds import SOUND_NAMES, play_sound
-from linux_notch.ui.mochi import OUTFITS
-
-FACES = [
-    ("auto", "Automatic", "Music with art + EQ when playing, clock otherwise"),
-    ("status", "Clock + battery", "Time and charge, always"),
-    ("lyrics", "Lyrics", "The current synced lyric line"),
-    ("title", "Song title", "Just the title — never the artist"),
-    ("compact", "Music icon", "Album art and EQ only"),
-    ("clock", "Clock only", ""),
-    ("battery", "Battery only", ""),
-    ("weather", "Weather", "Temperature and conditions"),
-    ("bluetooth", "Bluetooth", "Connected device and its battery"),
-    ("claude", "Claude usage", "Available only when the opt-in module is enabled"),
-    ("activity", "Live activity", "Current external activity"),
-]
 
 MODULES = [
-    ("music", "Music", "MPRIS players: pill face, full controls, album art"),
-    ("lyrics", "Lyrics", "Synced lyrics from lrclib.net for the lyrics face"),
+    ("music", "Music", "MPRIS players: full controls and album art"),
     ("volume_osd", "Volume OSD", "Peek on volume changes"),
     ("battery", "Battery", "Charge ring and plug/unplug peeks"),
     ("notifications", "Notifications", "Mirror notifications as peeks"),
@@ -36,19 +19,28 @@ MODULES = [
     ("toggles", "Quick toggles", "Mute, mic, caffeine, screenshot"),
     ("claude_usage", "Claude usage (opt-in)",
      "Reads Claude Code credentials to fetch usage from Anthropic"),
+    ("clipboard", "Clipboard history",
+     "Local-only clipboard history; recording is paused by default"),
+    ("spotify", "Spotify", "Spotify controls through MPRIS over D-Bus"),
 ]
 
 
-class SettingsWindow(Adw.PreferencesWindow):
+class SettingsPanel(Gtk.Box):
     def __init__(self, cfg: dict, on_apply):
-        super().__init__(title="Linux Notch")
-        self.set_default_size(420, 620)
-        self.set_search_enabled(False)
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.cfg = cfg
         self.on_apply = on_apply
 
-        self.add(self._island_page())
-        self.add(self._modules_page())
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        content.append(self._island_page())
+        content.append(self._modules_page())
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_min_content_height(360)
+        scroll.set_max_content_height(420)
+        scroll.set_child(content)
+        scroll.set_vexpand(True)
+        self.append(scroll)
 
     # -- helpers -----------------------------------------------------------
 
@@ -72,7 +64,7 @@ class SettingsWindow(Adw.PreferencesWindow):
     # -- pages -------------------------------------------------------------
 
     def _island_page(self):
-        page = Adw.PreferencesPage(title="Island", icon_name="go-home-symbolic")
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
         pos = Adw.PreferencesGroup(title="Position")
         pos.add(self._switch(
@@ -119,7 +111,7 @@ class SettingsWindow(Adw.PreferencesWindow):
             self._apply()
         overlay.connect("notify::active", on_overlay_change)
         pos.add(overlay)
-        page.add(pos)
+        page.append(pos)
 
         look = Adw.PreferencesGroup(title="Look")
         opacity = Adw.SpinRow.new_with_range(30, 100, 5)
@@ -146,28 +138,11 @@ class SettingsWindow(Adw.PreferencesWindow):
         color.add_suffix(btn)
         look.add(color)
         look.add(self._switch("24-hour clock", "", "clock_24h"))
-        look.add(self._switch("Clock in the idle pill", "", "idle_clock"))
-        look.add(self._switch("Battery in the pill",
-                              "Shown while charging or below 30%",
-                              "pill_battery"))
-        page.add(look)
+        page.append(look)
 
         mochi = Adw.PreferencesGroup(
             title="Mochi",
-            description="Click Mochi for a reaction; right-click him to cycle outfits")
-        outfit = Adw.ComboRow(title="Outfit")
-        outfit.set_model(Gtk.StringList.new([label for _key, label in OUTFITS]))
-        outfit_keys = [key for key, _label in OUTFITS]
-        selected_outfit = self.cfg.get("mochi_outfit", "auto")
-        outfit.set_selected(
-            outfit_keys.index(selected_outfit)
-            if selected_outfit in outfit_keys else 0
-        )
-        def on_outfit_change(row, _property):
-            self.cfg["mochi_outfit"] = outfit_keys[row.get_selected()]
-            self._apply()
-        outfit.connect("notify::selected", on_outfit_change)
-        mochi.add(outfit)
+            description="Configure Mochi's sound effects")
 
         mochi.add(self._switch(
             "Sound effects",
@@ -197,21 +172,9 @@ class SettingsWindow(Adw.PreferencesWindow):
                 SOUND_NAMES[sound_picker.get_selected()], self.cfg))
         preview.add_suffix(preview_button)
         mochi.add(preview)
-        page.add(mochi)
+        page.append(mochi)
 
         behavior = Adw.PreferencesGroup(title="Behavior")
-        click = Adw.ComboRow(
-            title="Left click on the pill",
-            subtitle="Right click always opens the card; swipe cycles faces")
-        actions = [("cycle", "Cycle faces"), ("expand", "Open the card")]
-        click.set_model(Gtk.StringList.new([a[1] for a in actions]))
-        click.set_selected(
-            1 if self.cfg.get("click_action", "cycle") == "expand" else 0)
-        click.connect("notify::selected", lambda r, _p: (
-            self.cfg.__setitem__("click_action",
-                                 actions[r.get_selected()][0]),
-            self._apply()))
-        behavior.add(click)
         peek = Adw.SpinRow.new_with_range(0.8, 6.0, 0.2)
         peek.set_digits(1)
         peek.set_title("Peek duration")
@@ -221,38 +184,11 @@ class SettingsWindow(Adw.PreferencesWindow):
             self.cfg.__setitem__("peek_seconds", round(r.get_value(), 1)),
             self._apply()))
         behavior.add(peek)
-        page.add(behavior)
-
-        faces = Adw.PreferencesGroup(
-            title="Pill faces",
-            description="Faces in the click/swipe cycle. The order is fixed; "
-                        "a face with nothing to show falls back to the clock")
-        enabled = self.cfg.get("pill_faces", [])
-        for key, title, subtitle in FACES:
-            row = Adw.SwitchRow(title=title, subtitle=subtitle)
-            row.set_active(key in enabled)
-            row.connect("notify::active",
-                        lambda r, _p, k=key: self._toggle_face(k, r))
-            faces.add(row)
-        page.add(faces)
+        page.append(behavior)
         return page
 
-    def _toggle_face(self, key: str, row):
-        current = [f for f in self.cfg.get("pill_faces", []) if f != key]
-        if row.get_active():
-            order = [f[0] for f in FACES]
-            current.append(key)
-            current.sort(key=order.index)
-        if not current:
-            current = ["auto"]
-        self.cfg["pill_faces"] = current
-        if self.cfg.get("pill_face") not in current:
-            self.cfg["pill_face"] = current[0]
-        self._apply()
-
     def _modules_page(self):
-        page = Adw.PreferencesPage(title="Modules",
-                                   icon_name="view-grid-symbolic")
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         group = Adw.PreferencesGroup(
             title="Modules",
             description="Turning a module off removes its widgets, peeks "
@@ -260,7 +196,7 @@ class SettingsWindow(Adw.PreferencesWindow):
         for key, title, subtitle in MODULES:
             group.add(self._switch(title, subtitle, key,
                                    structural=True, mod=True))
-        page.add(group)
+        page.append(group)
 
         weather = Adw.PreferencesGroup(title="Weather")
         city = Adw.EntryRow(title="Location (empty = automatic)")
@@ -270,5 +206,5 @@ class SettingsWindow(Adw.PreferencesWindow):
             self._apply(structural=True)))
         city.set_show_apply_button(True)
         weather.add(city)
-        page.add(weather)
+        page.append(weather)
         return page

@@ -34,6 +34,17 @@ class BackendSelectionTests(unittest.TestCase):
             )
         self.assertIsInstance(backend, FloatingWindowBackend)
 
+    @patch("linux_notch.desktop.x11.X11Backend.usable", return_value=True)
+    def test_explicit_x11_backend_is_used_in_wayland_session(self, _probe):
+        backend = choose_backend(
+            {
+                "XDG_SESSION_TYPE": "wayland",
+                "GDK_BACKEND": "x11",
+                "DISPLAY": ":0",
+            }
+        )
+        self.assertEqual(backend.name, "x11")
+
     def test_empty_environment_uses_floating_fallback(self):
         self.assertIsInstance(choose_backend({}), FloatingWindowBackend)
 

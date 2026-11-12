@@ -10,6 +10,7 @@ import os
 import sqlite3
 import time
 import logging
+import uuid
 
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango
 
@@ -27,7 +28,9 @@ FEATURES = (
     ("spotify", "Spotify", "audio-x-generic-symbolic", "spotify"),
     ("music", "Music", "audio-x-generic-symbolic", "music"),
     ("system", "Widgets", "view-grid-symbolic", "system"),
+    ("todos", "ToDo", "view-list-symbolic", "todos"),
 )
+HOME_FEATURES = ("clipboard", "spotify", "music", "system")
 
 
 class Expanded(Gtk.Box):
@@ -35,7 +38,8 @@ class Expanded(Gtk.Box):
                  on_settings=None,
                  clipboard: ClipboardHistoryService | None = None,
                  spotify_available: bool | None = None,
-                 on_mochi_changed=None, on_close=None):
+                 on_mochi_changed=None, on_content_changed=None,
+                 on_close=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.add_css_class("expanded")
         self.cfg = cfg
@@ -46,6 +50,7 @@ class Expanded(Gtk.Box):
         self.on_settings = on_settings
         self.on_close = on_close
         self.on_mochi_changed = on_mochi_changed
+        self.on_content_changed = on_content_changed
         self.clipboard = clipboard
         self.spotify_available = (
             spotify_installed() if spotify_available is None
@@ -81,8 +86,11 @@ class Expanded(Gtk.Box):
         self._build_mochi_page()
         if self.clipboard is not None:
             self._build_clipboard_page()
+        if cfg.get("modules", {}).get("todos", True):
+            self._build_todo_page()
         if cfg.get("modules", {}).get("spotify", True):
             self._build_spotify_page()
+        self._build_features_page()
         self._build_home_page()
         self.page_stack.connect(
             "notify::visible-child-name",
@@ -108,8 +116,9 @@ class Expanded(Gtk.Box):
         self.add_button = Gtk.Button()
         self.add_button.add_css_class("tab-btn")
         self.add_button.set_icon_name("list-add-symbolic")
-        self.add_button.set_tooltip_text("Feature selector")
-        self.add_button.connect("clicked", lambda *_: self.show_page("home"))
+        self.add_button.set_tooltip_text("Show all features")
+        self.add_button.connect(
+            "clicked", lambda *_: self.show_page("features"))
 
         self.settings_button = Gtk.Button()
         self.settings_button.add_css_class("tab-btn")
@@ -159,6 +168,8 @@ class Expanded(Gtk.Box):
             "go-home-symbolic" if home else "go-previous-symbolic")
         self.top_button.set_tooltip_text("Close" if home else "Back")
         self.clear_clipboard_button.set_visible(name == "clipboard")
+        if self.on_content_changed is not None:
+            self.on_content_changed()
 
     def reset_to_home(self):
         self.show_page("home")
@@ -174,6 +185,45 @@ class Expanded(Gtk.Box):
         page.append(content)
         self.pages[name] = page
         self.page_stack.add_named(page, name)
+
+    def _available_features(self):
+        modules = self.cfg.get("modules", {})
+        return [
+            feature for feature in FEATURES
+            if (not feature[3] or modules.get(feature[3], True))
+            and feature[0] in self.pages
+        ]
+
+    def _feature_button(self, feature):
+        feature_id, title, icon, _module = feature
+        button = Gtk.Button()
+        button.add_css_class("home-feature-btn")
+        button.set_hexpand(True)
+        button.set_tooltip_text(title)
+        content = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        image = Gtk.Image.new_from_icon_name(icon)
+        image.set_pixel_size(18)
+        label = Gtk.Label(label=title)
+        label.add_css_class("feature-btn-label")
+        content.append(image)
+        content.append(label)
+        button.set_child(content)
+        button.connect(
+            "clicked", lambda _button: self.show_page(feature_id))
+        return button
+
+    def _build_features_page(self):
+        buttons = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        for feature in self._available_features():
+            buttons.append(self._feature_button(feature))
+
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_min_content_height(150)
+        scroll.set_child(buttons)
+        self._add_feature_page("features", "All features", scroll)
 
     # -- media player section ---------------------------------------------
 
@@ -541,6 +591,8 @@ class Expanded(Gtk.Box):
             content.append(pin)
             row.set_child(content)
             self.clipboard_list.append(row)
+        if self.on_content_changed is not None:
+            self.on_content_changed()
 
     def _copy_clipboard_item(self, _button, item):
         clipboard = self.clipboard.clipboard
@@ -569,6 +621,124 @@ class Expanded(Gtk.Box):
             self.clipboard.set_pinned(item_id, button.get_active())
         except (OSError, sqlite3.Error) as error:
             self._on_clipboard_error(self.clipboard, str(error))
+
+    def _build_todo_page(self):
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        input_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.todo_entry = Gtk.Entry()
+        self.todo_entry.set_placeholder_text("Add a task...")
+        self.todo_entry.set_hexpand(True)
+        self.todo_entry.connect("activate", self._add_todo)
+        add_button = Gtk.Button.new_from_icon_name("list-add-symbolic")
+        add_button.add_css_class("todo-add-btn")
+        add_button.set_tooltip_text("Add task")
+        add_button.connect("clicked", self._add_todo)
+        input_row.append(self.todo_entry)
+        input_row.append(add_button)
+        body.append(input_row)
+
+        self.todo_status = Gtk.Label(
+            label="Tasks are saved on this device.", xalign=0)
+        self.todo_status.add_css_class("tile-sub")
+        body.append(self.todo_status)
+
+        self.todo_list = Gtk.ListBox()
+        self.todo_list.add_css_class("todo-list")
+        self.todo_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_min_content_height(110)
+        scroll.set_child(self.todo_list)
+        body.append(scroll)
+        self._refresh_todos()
+        self._add_feature_page("todos", "ToDo list", body)
+
+    def _todo_items(self):
+        items = self.cfg.get("todos", [])
+        if not isinstance(items, list):
+            return []
+        return [
+            item for item in items
+            if isinstance(item, dict)
+            and isinstance(item.get("id"), str)
+            and isinstance(item.get("text"), str)
+            and isinstance(item.get("completed"), bool)
+        ]
+
+    def _save_todos(self, items):
+        try:
+            config.save({**self.cfg, "todos": items})
+        except OSError as error:
+            self.todo_status.set_label(f"Could not save tasks: {error}")
+            return False
+        self.cfg["todos"] = items
+        self.todo_status.set_label("Tasks are saved on this device.")
+        return True
+
+    def _add_todo(self, *_):
+        text = self.todo_entry.get_text().strip()
+        if not text:
+            return
+        items = self._todo_items()
+        items.append({
+            "id": uuid.uuid4().hex,
+            "text": text,
+            "completed": False,
+        })
+        if self._save_todos(items):
+            self.todo_entry.set_text("")
+            self._refresh_todos()
+
+    def _toggle_todo(self, button, item_id):
+        items = [
+            {**item, "completed": button.get_active()}
+            if item["id"] == item_id else item
+            for item in self._todo_items()
+        ]
+        self._save_todos(items)
+        self._refresh_todos()
+
+    def _delete_todo(self, _button, item_id):
+        items = [
+            item for item in self._todo_items() if item["id"] != item_id
+        ]
+        if self._save_todos(items):
+            self._refresh_todos()
+
+    def _refresh_todos(self):
+        row = self.todo_list.get_first_child()
+        while row is not None:
+            following = row.get_next_sibling()
+            self.todo_list.remove(row)
+            row = following
+
+        for item in self._todo_items():
+            row = Gtk.ListBoxRow()
+            content = Gtk.Box(
+                orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            content.add_css_class("todo-row")
+            check = Gtk.CheckButton()
+            check.set_active(item["completed"])
+            label = Gtk.Label(label=item["text"], xalign=0, hexpand=True)
+            label.set_wrap(True)
+            check.set_child(label)
+            if item["completed"]:
+                label.set_markup(
+                    "<span strikethrough='true'>"
+                    f"{GLib.markup_escape_text(item['text'])}</span>")
+                label.add_css_class("todo-completed")
+            check.connect("toggled", self._toggle_todo, item["id"])
+            content.append(check)
+
+            delete = Gtk.Button.new_from_icon_name("user-trash-symbolic")
+            delete.add_css_class("todo-delete-btn")
+            delete.set_tooltip_text("Delete task")
+            delete.connect("clicked", self._delete_todo, item["id"])
+            content.append(delete)
+            row.set_child(content)
+            self.todo_list.append(row)
+        if self.on_content_changed is not None:
+            self.on_content_changed()
 
     def _build_spotify_page(self):
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -768,28 +938,13 @@ class Expanded(Gtk.Box):
         grid.set_hexpand(True)
         grid.set_vexpand(True)
 
-        modules = self.cfg.get("modules", {})
         column = 0
         row = 0
-        for feature_id, title, icon, module in FEATURES:
-            if module and not modules.get(module, True):
+        for feature in self._available_features():
+            feature_id = feature[0]
+            if feature_id not in HOME_FEATURES:
                 continue
-            if feature_id not in self.pages:
-                continue
-            button = Gtk.Button()
-            button.add_css_class("home-feature-btn")
-            button.set_tooltip_text(title)
-            content = Gtk.Box(
-                orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            image = Gtk.Image.new_from_icon_name(icon)
-            image.set_pixel_size(18)
-            label = Gtk.Label(label=title)
-            label.add_css_class("feature-btn-label")
-            content.append(image)
-            content.append(label)
-            button.set_child(content)
-            button.connect(
-                "clicked", lambda _button, name=feature_id: self.show_page(name))
+            button = self._feature_button(feature)
             grid.attach(button, column, row, 1, 1)
             column += 1
             if column == 2:

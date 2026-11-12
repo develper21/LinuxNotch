@@ -17,7 +17,8 @@ the original Lost Island copyright and MIT license are retained.
 - Animated Mochi character moods, seasonal outfits, and 29 bundled sound
   effects. The collapsed island shows Mochi only; choose his outfit from the
   expanded Mochi feature, and configure sound volume and previews in Settings.
-  The expanded island also includes clipboard history and Spotify.
+  The expanded island also includes clipboard history, Spotify, and a local
+  ToDo list with task completion and deletion.
 - Clipboard history is opt-in, local-only, and paused by default; text and
   bounded image history can be pinned, copied back, or cleared. GTK clipboard
   access depends on desktop permissions, so Wayland monitoring may be limited.

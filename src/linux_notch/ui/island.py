@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 
 import cairo
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, Gdk, GLib, Gtk
 
 from linux_notch.services.sounds import play_sound
 from linux_notch.ui.expanded import Expanded
@@ -25,15 +25,45 @@ PEEK: ShapeGeometry = {
     "radius": 14,
     "ear": 12,
 }
-OPEN: ShapeGeometry = {
-    "width": 640,
-    "height": 260,
-    "radius": 28,
-    "ear": 24,
-}
-
 COLLAPSE_DELAY_MS = 700
 CONTENT_FADE_DELAY_MS = 120
+MIN_EXPANDED_WIDTH = 420
+MIN_EXPANDED_HEIGHT = 180
+EXPANDED_WIDTH_FRACTION = 0.92
+EXPANDED_HEIGHT_FRACTION = 0.82
+
+
+def expanded_geometry(
+    natural_width: int,
+    natural_height: int,
+    monitor_width: int,
+    monitor_height: int,
+) -> ShapeGeometry:
+    max_width = max(1, round(monitor_width * EXPANDED_WIDTH_FRACTION))
+    max_height = max(1, round(monitor_height * EXPANDED_HEIGHT_FRACTION))
+    ear = min(24, max_width / 8)
+    width = min(
+        max_width,
+        max(MIN_EXPANDED_WIDTH, natural_width + round(ear * 2)),
+    )
+    height = min(
+        max_height,
+        max(MIN_EXPANDED_HEIGHT, natural_height + 20),
+    )
+    return {
+        "width": width,
+        "height": height,
+        "radius": min(28, height / 2),
+        "ear": min(ear, width / 8),
+    }
+
+
+def _find_monitor(monitors, wanted: str):
+    for index in range(monitors.get_n_items()):
+        monitor = monitors.get_item(index)
+        if wanted and monitor.get_connector() == wanted:
+            return monitor
+    return monitors.get_item(0) if monitors.get_n_items() else None
 
 
 class Island(Gtk.Overlay):
@@ -52,6 +82,7 @@ class Island(Gtk.Overlay):
         self._fade_timeout = 0
         self._spring_timeout = 0
         self._spring_start_us = 0
+        self._resize_timeout = 0
         self._collapse_pending = False
         self._hovered = False
         self._animation = None
@@ -85,6 +116,7 @@ class Island(Gtk.Overlay):
             on_settings=on_settings,
             clipboard=clipboard,
             on_mochi_changed=self.pill.mochi.outfit_changed,
+            on_content_changed=self._schedule_content_resize,
             on_close=self.collapse,
         )
 
@@ -145,13 +177,13 @@ class Island(Gtk.Overlay):
         self.stack.set_visible_child_name("expanded")
         if not was_expanded:
             self.stack.set_opacity(0.0)
-            self._animate_to(OPEN)
+            self._animate_to(self._measure_expanded_geometry())
             self._fade_timeout = GLib.timeout_add(
                 CONTENT_FADE_DELAY_MS, self._finish_expand)
             play_sound("open", self.cfg)
         else:
             self.stack.set_opacity(1.0)
-            self._animate_to(OPEN)
+            self._animate_to(self._measure_expanded_geometry())
 
     def _finish_expand(self) -> bool:
         self._fade_timeout = 0
@@ -199,6 +231,41 @@ class Island(Gtk.Overlay):
         vertical_inset = min(8, max(0, round((height - 50) / 26)))
         self.stack.set_margin_top(vertical_inset)
         self.stack.set_margin_bottom(round(vertical_inset * 1.25))
+
+    def _schedule_content_resize(self):
+        if self.state != "expanded" or self._resize_timeout:
+            return
+        self._resize_timeout = GLib.idle_add(self._resize_to_content)
+
+    def _resize_to_content(self) -> bool:
+        self._resize_timeout = 0
+        if self.state == "expanded":
+            self._animate_to(self._measure_expanded_geometry())
+        return GLib.SOURCE_REMOVE
+
+    def _monitor_size(self) -> tuple[int, int]:
+        display = Gdk.Display.get_default()
+        if display is None:
+            return 1280, 900
+        monitors = display.get_monitors()
+        monitor = _find_monitor(monitors, self.cfg.get("monitor", ""))
+        if monitor is None:
+            return 1280, 900
+        geometry = monitor.get_geometry()
+        return geometry.width, geometry.height
+
+    def _measure_expanded_geometry(self) -> ShapeGeometry:
+        monitor_width, monitor_height = self._monitor_size()
+        _minimum, natural_width, _min_baseline, _nat_baseline = (
+            self.expanded.measure(Gtk.Orientation.HORIZONTAL, -1))
+        width_geometry = expanded_geometry(
+            natural_width, 0, monitor_width, monitor_height)
+        content_width = max(
+            1, width_geometry["width"] - round(width_geometry["ear"] * 2))
+        _minimum, natural_height, _min_baseline, _nat_baseline = (
+            self.expanded.measure(Gtk.Orientation.VERTICAL, content_width))
+        return expanded_geometry(
+            natural_width, natural_height, monitor_width, monitor_height)
 
     def _animate_to(self, target: ShapeGeometry) -> None:
         if self._animation is not None:

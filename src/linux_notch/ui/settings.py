@@ -22,6 +22,7 @@ MODULES = [
     ("clipboard", "Clipboard history",
      "Local-only clipboard history; recording is paused by default"),
     ("spotify", "Spotify", "Spotify controls through MPRIS over D-Bus"),
+    ("todos", "ToDo list", "Create and track your local tasks"),
 ]
 
 

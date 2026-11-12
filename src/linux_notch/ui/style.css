@@ -213,6 +213,45 @@ window.island-window decoration {
   color: #f2f2f4;
 }
 
+.todo-list {
+  background: transparent;
+}
+
+.todo-row {
+  padding: 3px 4px;
+}
+
+.todo-completed {
+  color: rgba(242, 242, 244, 0.48);
+}
+
+.todo-add-btn,
+.todo-delete-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: none;
+  border-radius: 99px;
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+  color: rgba(242, 242, 244, 0.72);
+  -gtk-icon-size: 14px;
+}
+
+.todo-add-btn:hover,
+.todo-delete-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #f2f2f4;
+}
+
+.todo-delete-btn {
+  opacity: 0;
+}
+
+.todo-row:hover .todo-delete-btn,
+.todo-delete-btn:focus {
+  opacity: 1;
+}
+
 .spotify-progress trough {
   background: rgba(255, 255, 255, 0.12);
   border: none;

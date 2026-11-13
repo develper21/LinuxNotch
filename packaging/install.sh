@@ -43,7 +43,12 @@ cat > "$PREFIX/bin/notchctl" <<EOF
 #!/bin/sh
 PYTHONPATH=$PREFIX/lib/linux-notch exec python3 -m linux_notch.tools.notchctl "\$@"
 EOF
-chmod 755 "$PREFIX/bin/linux-notch" "$PREFIX/bin/notchctl"
+cat > "$PREFIX/bin/linux-notch-face-daemon" <<EOF
+#!/bin/sh
+PYTHONPATH=$PREFIX/lib/linux-notch exec python3 -m linux_notch.tools.face_daemon "\$@"
+EOF
+chmod 755 "$PREFIX/bin/linux-notch" "$PREFIX/bin/notchctl" \
+  "$PREFIX/bin/linux-notch-face-daemon"
 
 sed "s|^Exec=linux-notch$|Exec=$PREFIX/bin/linux-notch|" \
   "$ROOT/data/linux-notch.desktop" \
@@ -53,6 +58,9 @@ install -Dm644 "$ROOT/data/linux-notch.svg" \
 sed "s|^ExecStart=/usr/bin/linux-notch$|ExecStart=$PREFIX/bin/linux-notch|" \
   "$ROOT/data/linux-notch.service" \
   > /usr/lib/systemd/user/linux-notch.service
+sed "s|^ExecStart=/usr/bin/linux-notch-face-daemon$|ExecStart=$PREFIX/bin/linux-notch-face-daemon|" \
+  "$ROOT/data/linux-notch-face.service" \
+  > /usr/lib/systemd/user/linux-notch-face.service
 install -Dm644 "$ROOT/gnome-extension/linux-notch@linuxnotch.org/metadata.json" \
   /usr/share/gnome-shell/extensions/linux-notch@linuxnotch.org/metadata.json
 install -Dm644 "$ROOT/gnome-extension/linux-notch@linuxnotch.org/extension.js" \

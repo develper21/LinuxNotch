@@ -10,7 +10,9 @@ depends=('python>=3.11' 'python-gobject' 'python-cairo' 'gtk4' 'libadwaita'
          'libpulse')
 optdepends=('networkmanager: connectivity tile and peeks'
             'upower: battery ring and charge peeks'
-            'gtk4-layer-shell: native Wayland layer-shell backend')
+            'gtk4-layer-shell: native Wayland layer-shell backend'
+            'python-opencv: local face scan daemon'
+            'python-numpy: local face scan daemon')
 source=("$pkgname-$pkgver.tar.gz")
 sha256sums=('SKIP')
 
@@ -28,6 +30,11 @@ EOF
 PYTHONPATH=/usr/lib/linux-notch exec python3 -m linux_notch.tools.notchctl "$@"
 EOF
   chmod 755 "$pkgdir/usr/bin/notchctl"
+  cat > "$pkgdir/usr/bin/linux-notch-face-daemon" <<'EOF'
+#!/bin/sh
+PYTHONPATH=/usr/lib/linux-notch exec python3 -m linux_notch.tools.face_daemon "$@"
+EOF
+  chmod 755 "$pkgdir/usr/bin/linux-notch-face-daemon"
 
   install -Dm644 data/linux-notch.desktop \
     "$pkgdir/usr/share/applications/linux-notch.desktop"
@@ -35,6 +42,8 @@ EOF
     "$pkgdir/usr/share/icons/hicolor/scalable/apps/linux-notch.svg"
   install -Dm644 data/linux-notch.service \
     "$pkgdir/usr/lib/systemd/user/linux-notch.service"
+  install -Dm644 data/linux-notch-face.service \
+    "$pkgdir/usr/lib/systemd/user/linux-notch-face.service"
   install -Dm644 data/linux-notch-autostart.desktop \
     "$pkgdir/usr/share/doc/linux-notch/linux-notch-autostart.desktop"
   install -Dm644 gnome-extension/linux-notch@linuxnotch.org/metadata.json \

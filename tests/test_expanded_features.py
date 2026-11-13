@@ -14,6 +14,8 @@ class ExpandedFeatureLayoutTests(unittest.TestCase):
         self.assertTrue(set(HOME_FEATURES).issubset(feature_ids))
         self.assertIn("todos", feature_ids)
         self.assertNotIn("todos", HOME_FEATURES)
+        self.assertIn("face", feature_ids)
+        self.assertNotIn("face", HOME_FEATURES)
 
 
 if __name__ == "__main__":

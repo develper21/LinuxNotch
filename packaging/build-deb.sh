@@ -30,9 +30,16 @@ PYTHONPATH=/usr/lib/linux-notch exec python3 -m linux_notch.tools.notchctl "$@"
 EOF
 chmod 755 "$ROOT/usr/bin/notchctl"
 
+cat > "$ROOT/usr/bin/linux-notch-face-daemon" <<'EOF'
+#!/bin/sh
+PYTHONPATH=/usr/lib/linux-notch exec python3 -m linux_notch.tools.face_daemon "$@"
+EOF
+chmod 755 "$ROOT/usr/bin/linux-notch-face-daemon"
+
 cp data/linux-notch.desktop "$ROOT/usr/share/applications/"
 cp data/linux-notch.svg "$ROOT/usr/share/icons/hicolor/scalable/apps/"
 cp data/linux-notch.service "$ROOT/usr/lib/systemd/user/"
+cp data/linux-notch-face.service "$ROOT/usr/lib/systemd/user/"
 cp data/linux-notch-autostart.desktop "$ROOT/usr/share/doc/linux-notch/"
 cp -r gnome-extension/linux-notch@linuxnotch.org/. \
   "$ROOT/usr/share/gnome-shell/extensions/linux-notch@linuxnotch.org/"
@@ -48,7 +55,7 @@ Section: utils
 Priority: optional
 Architecture: all
 Depends: python3 (>= 3.11), python3-gi, python3-gi-cairo, python3-cairo, gir1.2-gtk-4.0, gir1.2-adw-1, pulseaudio-utils
-Recommends: libgtk4-layer-shell0, network-manager, upower
+Recommends: libgtk4-layer-shell0, network-manager, upower, python3-opencv, python3-numpy
 Maintainer: Linux Notch contributors
 Homepage: https://github.com/MarcoZorn/lost-island
 Description: Native island overlay for Linux desktops

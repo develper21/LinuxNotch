@@ -30,6 +30,37 @@ the original Lost Island copyright and MIT license are retained.
 - Claude usage access is opt-in; its credential/API path is not started by
   default.
 
+## Face engine experiment
+
+The experimental face engine does not unlock the session. It stores only
+locally captured face embeddings under
+`~/.local/share/linux-notch/face/embeddings.npy`; raw camera frames are never
+saved. The camera is opened only during an explicit face-test or locked-session
+scan request.
+Threshold `0.45` is a starting point, not a security guarantee, and ordinary
+webcams do not provide liveness detection.
+
+```sh
+python3 -m venv --system-site-packages .venv
+. .venv/bin/activate
+pip install -e '.[face]'
+notch-face-test download-models
+notch-face-test enroll
+notch-face-test check
+```
+
+The YuNet and SFace ONNX models are downloaded from the pinned
+[OpenCV Zoo](https://github.com/opencv/opencv_zoo/tree/48b10fa505aeb51fbd127fc60a5c660040e823b7/models)
+revision and SHA-256 verified before use. Their model licenses are
+[MIT (YuNet)](https://github.com/opencv/opencv_zoo/blob/48b10fa505aeb51fbd127fc60a5c660040e823b7/models/face_detection_yunet/LICENSE)
+and
+[Apache-2.0 (SFace)](https://github.com/opencv/opencv_zoo/blob/48b10fa505aeb51fbd127fc60a5c660040e823b7/models/face_recognition_sface/LICENSE).
+
+The experimental user-session scanner can be started with
+`linux-notch-face-daemon`; it exposes `org.linuxnotch.FaceDaemon` and opens the
+camera only after a locked-session `StartScan` call. It does not unlock the
+screen. See [`docs/face-auth.md`](docs/face-auth.md) for its D-Bus API.
+
 Desktop support claims are intentionally tiered; see
 [`docs/platform-support.md`](docs/platform-support.md). GNOME and X11 require
 their separate integration paths and remain unverified on this machine.
@@ -49,14 +80,16 @@ Arch dependencies:
 ```sh
 sudo pacman -S python python-gobject python-cairo gtk4 libadwaita libpulse
 sudo pacman -S gtk4-layer-shell  # optional, for layer-shell placement
+sudo pacman -S python-opencv python-numpy  # optional, for face scan
 ```
 
 Debian/Ubuntu dependencies:
 
 ```sh
 sudo apt install python3 python3-gi python3-gi-cairo \
-  python3-cairo   python3-cairo gir1.2-gtk-4.0 gir1.2-adw-1 pulseaudio-utils
+  python3-cairo gir1.2-gtk-4.0 gir1.2-adw-1 pulseaudio-utils
 sudo apt install libgtk4-layer-shell0  # optional, when available
+sudo apt install python3-opencv python3-numpy  # optional, for face scan
 ```
 
 Run from the checkout:

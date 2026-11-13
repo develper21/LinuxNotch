@@ -471,3 +471,24 @@ scale.vol slider {
   color: rgba(242, 242, 244, 0.45);
   font-feature-settings: "tnum";
 }
+
+/* ---- face unlock page ---- */
+
+.face-status-card {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  padding: 10px 14px;
+}
+
+.face-status-badge {
+  font-weight: 700;
+  font-size: 14px;
+  color: #f2f2f4;
+}
+
+.face-ctrl-box {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+  padding: 10px 14px;
+}
+

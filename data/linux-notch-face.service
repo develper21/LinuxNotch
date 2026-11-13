@@ -1,0 +1,17 @@
+[Unit]
+Description=Linux Notch face scan D-Bus daemon
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/linux-notch-face-daemon
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+
+[Install]
+WantedBy=graphical-session.target

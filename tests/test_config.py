@@ -24,6 +24,28 @@ class ConfigTest(unittest.TestCase):
         merged = config._merge(config.DEFAULTS, {})
         self.assertTrue(merged["modules"]["todos"])
         self.assertEqual(merged["todos"], [])
+        self.assertTrue(merged["modules"]["face"])
+        self.assertTrue(merged["face_enabled"])
+        self.assertEqual(merged["face_threshold"], 0.45)
+        self.assertFalse(merged["face_challenge"])
+
+    def test_face_settings_persist_across_config_loads(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with (
+                mock.patch.object(config, "CONFIG_DIR", directory),
+                mock.patch.object(
+                    config, "CONFIG_PATH", os.path.join(directory, "config.json")),
+            ):
+                config.save({
+                    **config.DEFAULTS,
+                    "face_enabled": False,
+                    "face_threshold": 0.55,
+                    "face_challenge": True,
+                })
+                loaded = config.load()
+                self.assertFalse(loaded["face_enabled"])
+                self.assertEqual(loaded["face_threshold"], 0.55)
+                self.assertTrue(loaded["face_challenge"])
 
     def test_todo_tasks_persist_across_config_loads(self):
         tasks = [{"id": "task-1", "text": "Test persistence", "completed": True}]

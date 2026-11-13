@@ -16,6 +16,7 @@ from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango
 
 from linux_notch import config
 from linux_notch.services.clipboard import ClipboardHistoryService
+from linux_notch.services.face_client import FaceDaemonClient
 from linux_notch.services.mpris import MprisService, SPOTIFY_BUS_NAME
 from linux_notch.services.spotify import spotify_installed
 from linux_notch.ui.draw import BatteryRing, pick_icon
@@ -29,6 +30,7 @@ FEATURES = (
     ("music", "Music", "audio-x-generic-symbolic", "music"),
     ("system", "Widgets", "view-grid-symbolic", "system"),
     ("todos", "ToDo", "view-list-symbolic", "todos"),
+    ("face", "Face Unlock", "avatar-default-symbolic", "face"),
 )
 HOME_FEATURES = ("clipboard", "spotify", "music", "system")
 
@@ -90,6 +92,9 @@ class Expanded(Gtk.Box):
             self._build_todo_page()
         if cfg.get("modules", {}).get("spotify", True):
             self._build_spotify_page()
+        self.face_client = FaceDaemonClient()
+        if cfg.get("modules", {}).get("face", True):
+            self._build_face_page()
         self._build_features_page()
         self._build_home_page()
         self.page_stack.connect(
@@ -168,6 +173,8 @@ class Expanded(Gtk.Box):
             "go-home-symbolic" if home else "go-previous-symbolic")
         self.top_button.set_tooltip_text("Close" if home else "Back")
         self.clear_clipboard_button.set_visible(name == "clipboard")
+        if name == "face" and hasattr(self, "_refresh_face_status"):
+            self._refresh_face_status()
         if self.on_content_changed is not None:
             self.on_content_changed()
 
@@ -899,6 +906,195 @@ class Expanded(Gtk.Box):
             self.spotify_progress.set_fraction(
                 min(1.0, position_us / player.length_us))
 
+    def _build_face_page(self):
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        body.set_vexpand(True)
+
+        status_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        status_card.add_css_class("face-status-card")
+
+        status_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        status_icon = Gtk.Image.new_from_icon_name("avatar-default-symbolic")
+        status_icon.set_pixel_size(24)
+        self.face_status_label = Gtk.Label(label="Checking face status...", xalign=0)
+        self.face_status_label.add_css_class("face-status-badge")
+        self.face_status_label.set_hexpand(True)
+        status_header.append(status_icon)
+        status_header.append(self.face_status_label)
+        status_card.append(status_header)
+
+        self.face_info_label = Gtk.Label(
+            label="Local biometric recognition for lock screen.",
+            xalign=0,
+        )
+        self.face_info_label.add_css_class("track-artist")
+        status_card.append(self.face_info_label)
+        body.append(status_card)
+
+        ctrl_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        ctrl_box.add_css_class("face-ctrl-box")
+
+        enable_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        enable_lbl = Gtk.Label(label="Enable Face Unlock", xalign=0, hexpand=True)
+        self.face_enable_switch = Gtk.Switch()
+        self.face_enable_switch.set_active(self.cfg.get("face_enabled", True))
+        def on_enable_toggled(sw, _):
+            val = sw.get_active()
+            self.cfg["face_enabled"] = val
+            config.save(self.cfg)
+            self.face_client.set_enabled(val)
+        self.face_enable_switch.connect("notify::active", on_enable_toggled)
+        enable_row.append(enable_lbl)
+        enable_row.append(self.face_enable_switch)
+        ctrl_box.append(enable_row)
+
+        thresh_row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        thresh_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        thresh_lbl = Gtk.Label(label="Similarity threshold", xalign=0, hexpand=True)
+        curr_thresh = float(self.cfg.get("face_threshold", 0.45))
+        self.face_thresh_val = Gtk.Label(label=f"{curr_thresh:.2f}")
+        self.face_thresh_val.add_css_class("track-artist")
+        thresh_header.append(thresh_lbl)
+        thresh_header.append(self.face_thresh_val)
+        thresh_row.append(thresh_header)
+
+        self.face_thresh_scale = Gtk.Scale.new_with_range(
+            Gtk.Orientation.HORIZONTAL, 0.30, 0.70, 0.05
+        )
+        self.face_thresh_scale.set_value(curr_thresh)
+        self.face_thresh_scale.set_hexpand(True)
+        def on_thresh_changed(scale):
+            val = round(scale.get_value(), 2)
+            self.face_thresh_val.set_label(f"{val:.2f}")
+            self.cfg["face_threshold"] = val
+            config.save(self.cfg)
+            self.face_client.set_threshold(val)
+        self.face_thresh_scale.connect("value-changed", on_thresh_changed)
+        thresh_row.append(self.face_thresh_scale)
+        ctrl_box.append(thresh_row)
+
+        chal_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        chal_meta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        chal_meta.set_hexpand(True)
+        chal_lbl = Gtk.Label(label="Head-movement challenge", xalign=0)
+        chal_sub = Gtk.Label(
+            label="Require head turn to reject 2D photos", xalign=0
+        )
+        chal_sub.add_css_class("track-artist")
+        chal_meta.append(chal_lbl)
+        chal_meta.append(chal_sub)
+        self.face_chal_switch = Gtk.Switch()
+        self.face_chal_switch.set_active(self.cfg.get("face_challenge", False))
+        def on_chal_toggled(sw, _):
+            val = sw.get_active()
+            self.cfg["face_challenge"] = val
+            config.save(self.cfg)
+            self.face_client.set_challenge(val)
+        self.face_chal_switch.connect("notify::active", on_chal_toggled)
+        chal_row.append(chal_meta)
+        chal_row.append(self.face_chal_switch)
+        ctrl_box.append(chal_row)
+
+        body.append(ctrl_box)
+
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.face_enroll_btn = Gtk.Button(label="Enroll face")
+        self.face_enroll_btn.set_icon_name("contact-new-symbolic")
+        self.face_enroll_btn.set_hexpand(True)
+        self.face_enroll_btn.connect("clicked", self._on_enroll_clicked)
+
+        self.face_reset_btn = Gtk.Button(label="Reset")
+        self.face_reset_btn.set_icon_name("user-trash-symbolic")
+        self.face_reset_btn.add_css_class("destructive-action")
+        self.face_reset_btn.connect("clicked", self._on_reset_clicked)
+
+        btn_box.append(self.face_enroll_btn)
+        btn_box.append(self.face_reset_btn)
+        body.append(btn_box)
+
+        self.face_test_btn = Gtk.Button(label="Test scan")
+        self.face_test_btn.set_icon_name("camera-photo-symbolic")
+        self.face_test_btn.connect("clicked", self._on_test_scan_clicked)
+        body.append(self.face_test_btn)
+
+        self.face_progress = Gtk.ProgressBar()
+        self.face_progress.set_visible(False)
+        body.append(self.face_progress)
+
+        self.face_feedback_label = Gtk.Label(label="", xalign=0)
+        self.face_feedback_label.add_css_class("track-artist")
+        self.face_feedback_label.set_wrap(True)
+        body.append(self.face_feedback_label)
+
+        self._add_feature_page("face", "Face Unlock", body)
+
+        self.face_client.connect("state-changed", self._on_face_state_changed)
+        self.face_client.connect("result-received", self._on_face_result_received)
+        self.face_client.connect("enroll-progress", self._on_face_enroll_progress)
+        self.face_client.connect("enroll-complete", self._on_face_enroll_complete)
+
+        self._refresh_face_status()
+
+    def _refresh_face_status(self):
+        if not hasattr(self, "face_client") or not hasattr(self, "face_status_label"):
+            return
+        status = self.face_client.get_status()
+        enrolled = status["enrolled"]
+        samples = status.get("sample_count", 0)
+        if enrolled:
+            text = f"Enrolled ({samples} samples)" if samples else "Enrolled"
+            self.face_status_label.set_label(text)
+            self.face_reset_btn.set_sensitive(True)
+        else:
+            self.face_status_label.set_label("Not enrolled")
+            self.face_reset_btn.set_sensitive(False)
+
+    def _on_enroll_clicked(self, _btn):
+        self.face_progress.set_visible(True)
+        self.face_progress.set_fraction(0.0)
+        self.face_feedback_label.set_label("Starting enrollment... Look at camera.")
+        try:
+            self.face_client.start_enroll()
+        except Exception as error:
+            self.face_feedback_label.set_label(f"Enrollment error: {error}")
+            self.face_progress.set_visible(False)
+
+    def _on_reset_clicked(self, _btn):
+        success = self.face_client.reset()
+        if success:
+            self.face_feedback_label.set_label("Face data removed.")
+            self._refresh_face_status()
+        else:
+            self.face_feedback_label.set_label("Could not reset face data.")
+
+    def _on_test_scan_clicked(self, _btn):
+        self.face_progress.set_visible(False)
+        self.face_feedback_label.set_label("Running test scan... Look at camera.")
+        try:
+            self.face_client.start_test_scan()
+        except Exception as error:
+            self.face_feedback_label.set_label(f"Test scan error: {error}")
+
+    def _on_face_state_changed(self, _client, state, message):
+        self.face_feedback_label.set_label(message)
+
+    def _on_face_result_received(self, _client, success, score):
+        if success:
+            self.face_feedback_label.set_label(f"Match confirmed! Similarity: {score:.2f}")
+        else:
+            self.face_feedback_label.set_label(f"No match. Best similarity: {score:.2f}")
+
+    def _on_face_enroll_progress(self, _client, step, total, pose):
+        fraction = min(1.0, max(0.0, step / total)) if total > 0 else 0.0
+        self.face_progress.set_visible(True)
+        self.face_progress.set_fraction(fraction)
+        self.face_feedback_label.set_label(f"Step {step}/{total}: {pose}")
+
+    def _on_face_enroll_complete(self, _client, success, message):
+        self.face_progress.set_visible(False)
+        self.face_feedback_label.set_label(message)
+        self._refresh_face_status()
+
     def _build_home_page(self):
         layout = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         layout.set_hexpand(True)
@@ -1090,6 +1286,8 @@ class Expanded(Gtk.Box):
             self._spotify_timer = 0
         if self.system is not None:
             self.system.stop()
+        if hasattr(self, "face_client"):
+            self.face_client.stop_scan()
 
     # -- seek bar ----------------------------------------------------------
 

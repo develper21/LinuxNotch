@@ -14,6 +14,7 @@ dependencies = ["PyGObject>=3.46", "pycairo>=1.20"]
 
 [project.optional-dependencies]
 dev = ["ruff>=0.12"]
+face = ["numpy>=1.24", "opencv-python>=4.10.0,<5"]
 
 [project.urls]
 Upstream = "https://github.com/MarcoZorn/lost-island"
@@ -21,6 +22,8 @@ Upstream = "https://github.com/MarcoZorn/lost-island"
 [project.scripts]
 linux-notch = "linux_notch.__main__:main"
 notchctl = "linux_notch.tools.notchctl:main"
+notch-face-test = "linux_notch.tools.face_test:main"
+linux-notch-face-daemon = "linux_notch.tools.face_daemon:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

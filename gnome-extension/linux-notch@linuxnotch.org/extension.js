@@ -17,7 +17,7 @@ const HELPER_XML = `
     <method name="Attach">
       <arg type="s" name="app_id" direction="in"/>
       <arg type="s" name="monitor" direction="in"/>
-      <arg type="i" name="margin_top" direction="in"/>
+      <arg type="i" name="margin_bottom" direction="in"/>
     </method>
     <method name="SetSize">
       <arg type="i" name="width" direction="in"/>
@@ -26,6 +26,7 @@ const HELPER_XML = `
     <method name="SetFullscreenPolicy">
       <arg type="s" name="policy" direction="in"/>
     </method>
+    <method name="Focus"/>
     <signal name="MonitorsChanged"/>
     <signal name="FullscreenChanged">
       <arg type="b" name="active"/>
@@ -70,59 +71,20 @@ const FaceDaemonProxy = Gio.DBusProxy.makeProxyWrapper(FACE_DAEMON_XML);
 
 const NOTCH_WIDTH = 280;
 const NOTCH_HEIGHT = 76;
-const NOTCH_RADIUS = 20;
-const NOTCH_EAR = 16;
+const NOTCH_RADIUS = 18;
 const LOCK_GRACE_COOLDOWN_US = 1500000; // 1.5 seconds cooldown after lock
 
-function drawIslandShape(cr, width, height, radius, ear, opacity = 1.0) {
+function drawIslandShape(cr, width, height, radius, opacity = 1.0) {
     if (width <= 0 || height <= 0)
         return;
 
-    ear = Math.min(Math.max(ear, 0), width / 2);
-    radius = Math.min(Math.max(radius, 0), (width - 2 * ear) / 2, height / 2);
+    radius = Math.min(Math.max(radius, 0), width / 2, height / 2);
 
     cr.newPath();
-    if (ear > 0) {
-        cr.moveTo(0, 0);
-        cr.arc(0, ear, ear, -Math.PI / 2, 0);
-        cr.lineTo(ear, height - radius);
-    } else {
-        cr.moveTo(0, 0);
-        cr.lineTo(0, height - radius);
-    }
-
-    if (radius > 0) {
-        cr.arcNegative(
-            ear + radius,
-            height - radius,
-            radius,
-            Math.PI,
-            Math.PI / 2
-        );
-    } else {
-        cr.lineTo(ear, height);
-    }
-
-    cr.lineTo(width - ear - radius, height);
-    if (radius > 0) {
-        cr.arcNegative(
-            width - ear - radius,
-            height - radius,
-            radius,
-            Math.PI / 2,
-            0
-        );
-    } else {
-        cr.lineTo(width - ear, height);
-    }
-
-    if (ear > 0) {
-        cr.lineTo(width - ear, ear);
-        cr.arc(width, ear, ear, Math.PI, -Math.PI / 2);
-    } else {
-        cr.lineTo(width, 0);
-    }
-
+    cr.arc(width - radius, radius, radius, -Math.PI / 2, 0);
+    cr.arc(width - radius, height - radius, radius, 0, Math.PI / 2);
+    cr.arc(radius, height - radius, radius, Math.PI / 2, Math.PI);
+    cr.arc(radius, radius, radius, Math.PI, 1.5 * Math.PI);
     cr.closePath();
     cr.setSourceRGBA(0, 0, 0, opacity);
     cr.fill();
@@ -132,7 +94,7 @@ export default class LinuxNotchExtension extends Extension {
     enable() {
         this._appId = '';
         this._monitor = '';
-        this._marginTop = 0;
+        this._marginBottom = 0;
         this._width = 320;
         this._height = 80;
         this._fullscreenPolicy = 'hide';
@@ -343,7 +305,7 @@ export default class LinuxNotchExtension extends Extension {
         });
         this._drawingArea.connect('repaint', (area) => {
             const cr = area.get_context();
-            drawIslandShape(cr, NOTCH_WIDTH, NOTCH_HEIGHT, NOTCH_RADIUS, NOTCH_EAR, 0.96);
+            drawIslandShape(cr, NOTCH_WIDTH, NOTCH_HEIGHT, NOTCH_RADIUS, 0.96);
             this._drawNotchContent(cr, NOTCH_WIDTH, NOTCH_HEIGHT);
             cr.$dispose();
         });
@@ -458,7 +420,7 @@ export default class LinuxNotchExtension extends Extension {
             return;
 
         const targetX = Math.round(monitor.x + (monitor.width - NOTCH_WIDTH) / 2);
-        const targetY = monitor.y;
+        const targetY = monitor.y + monitor.height - NOTCH_HEIGHT;
 
         const parent = Main.screenShield._dialog ?? Main.uiGroup;
         if (this._lockNotch.get_parent() !== parent) {
@@ -466,7 +428,7 @@ export default class LinuxNotchExtension extends Extension {
             parent.add_child(this._lockNotch);
         }
 
-        this._lockNotch.set_position(targetX, targetY - NOTCH_HEIGHT);
+        this._lockNotch.set_position(targetX, targetY + NOTCH_HEIGHT);
         this._lockNotch.set_opacity(0);
         this._lockNotch.show();
         this._drawingArea.queue_repaint();
@@ -505,7 +467,7 @@ export default class LinuxNotchExtension extends Extension {
         const monitors = Main.layoutManager.monitors;
         const primaryIdx = global.display.get_primary_monitor();
         const monitor = monitors[primaryIdx] ?? Main.layoutManager.primaryMonitor ?? monitors[0];
-        const targetY = monitor ? monitor.y - NOTCH_HEIGHT : -NOTCH_HEIGHT;
+        const targetY = monitor ? monitor.y + monitor.height : NOTCH_HEIGHT;
 
         this._lockNotch.ease({
             y: targetY,
@@ -585,10 +547,10 @@ export default class LinuxNotchExtension extends Extension {
         }
     }
 
-    Attach(appId, monitor, marginTop) {
+    Attach(appId, monitor, marginBottom) {
         this._appId = appId;
         this._monitor = monitor;
-        this._marginTop = Math.max(0, marginTop);
+        this._marginBottom = marginBottom;
         this._sync();
         this._scheduleSync();
     }
@@ -606,6 +568,12 @@ export default class LinuxNotchExtension extends Extension {
             throw new Error('Fullscreen policy must be hide or show');
         this._fullscreenPolicy = policy;
         this._sync();
+    }
+
+    Focus() {
+        if (!this._attachedWindow)
+            throw new Error('Linux Notch window is not attached');
+        this._attachedWindow.activate(global.get_current_time());
     }
 
     _connect(object, signal, callback) {
@@ -684,7 +652,8 @@ export default class LinuxNotchExtension extends Extension {
         const frame = target.get_frame_rect();
         const width = frame.width > 0 ? frame.width : this._width;
         const x = Math.round(geometry.x + (geometry.width - width) / 2);
-        const y = Math.round(geometry.y + this._marginTop);
+        const y = Math.round(
+            geometry.y + geometry.height - frame.height - this._marginBottom);
 
         if (frame.x !== x || frame.y !== y) {
             this._positioning = true;

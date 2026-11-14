@@ -24,7 +24,7 @@ because GTK4/libadwaita and gtk4-layer-shell are unavailable in that session.
   behavior need live-session checks.
 - X11 dock/above/sticky hints are window-manager policy, not guarantees.
   Transparency needs a compositing manager; XShape is optional.
-- The floating fallback cannot promise top-center positioning, panel overlap,
+- The floating fallback cannot promise bottom-center positioning, panel overlap,
   fullscreen behavior, or click-through.
 - Background clipboard, privacy monitoring, downloads, calendar and workspace
   integrations are not enabled or implemented in this initial deliverable.

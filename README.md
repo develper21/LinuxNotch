@@ -15,16 +15,22 @@ the original Lost Island copyright and MIT license are retained.
   client. Activities are per-D-Bus-client, bounded, plain-text data with
   quotas and expiration.
 - Animated Mochi character moods, seasonal outfits, and 29 bundled sound
-  effects. The collapsed island shows Mochi only; choose his outfit from the
-  expanded Mochi feature, and configure sound volume and previews in Settings.
-  The expanded island also includes clipboard history, Spotify, and a local
-  ToDo list with task completion and deletion.
+  effects. The collapsed island shows Mochi and a local-playback equalizer;
+  choose his outfit from the expanded Mochi feature, and configure sound
+  volume and previews in Settings. The expanded island also includes
+  clipboard history, a local music library, and a ToDo list, plus an optional
+  persistent VTE terminal page.
 - Clipboard history is opt-in, local-only, and paused by default; text and
   bounded image history can be pinned, copied back, or cleared. GTK clipboard
   access depends on desktop permissions, so Wayland monitoring may be limited.
-- Spotify controls use the existing MPRIS session-bus integration and need no
-  Spotify developer credentials. When it is not installed, the feature links
-  to Flathub.
+- Music scans the configured local folder recursively and plays audio through
+  GStreamer. It displays embedded or nearby album art and does not use a
+  streaming service or account. The collapsed island rotates through the
+  clock, battery, weather, and separate CPU/RAM status values when available.
+- The closed-notch equalizer defaults to Auto: it tries real FFT levels from
+  the default audio-output monitor while local music plays, then falls back to
+  synthetic motion if capture is unavailable. Real sync never uses the
+  microphone or saves audio; choose Real (beta) or Synthetic in Settings.
 - `systemd --user` autostart, desktop entry, Debian package build, and an Arch
   local PKGBUILD.
 - Claude usage access is opt-in; its credential/API path is not started by
@@ -70,16 +76,27 @@ their separate integration paths and remain unverified on this machine.
 - Linux, Python 3.11+, PyGObject, GTK 4, libadwaita, and PulseAudio utilities.
 - Pycairo/PyGObject Cairo bindings and `paplay` (provided by
   `pulseaudio-utils`) for Mochi rendering and sound effects.
+- `libsecret` and an unlocked Secret Service keyring for securely saving
+  Gmail App Passwords used by the Mail feature.
+- VTE GTK 4 bindings and library for the embedded terminal. The terminal
+  feature displays installation instructions if VTE is absent.
 - `gtk4-layer-shell` is optional but required for native top-edge placement on
   KDE Wayland and wlroots compositors.
 - GNOME Wayland placement requires the included Shell extension. X11 EWMH
   behavior requires an X11 session; a compositor is needed for transparency.
+- The default bottom margin slightly overlaps the display edge to compensate
+  for transparent GTK surface padding; adjust the bottom margin in Settings
+  if you want to move it back up.
 
 Arch dependencies:
 
 ```sh
-sudo pacman -S python python-gobject python-cairo gtk4 libadwaita libpulse
+sudo pacman -S python python-gobject python-cairo gtk4 libadwaita libpulse \
+  gstreamer gst-plugins-base gst-plugins-good libsecret
+sudo pacman -S gnome-keyring  # keyring service, if your desktop has none
+sudo pacman -S gst-plugin-pulse  # optional, for real audio-sync visualization
 sudo pacman -S gtk4-layer-shell  # optional, for layer-shell placement
+sudo pacman -S vte4  # embedded terminal
 sudo pacman -S python-opencv python-numpy  # optional, for face scan
 ```
 
@@ -87,10 +104,26 @@ Debian/Ubuntu dependencies:
 
 ```sh
 sudo apt install python3 python3-gi python3-gi-cairo \
-  python3-cairo gir1.2-gtk-4.0 gir1.2-adw-1 pulseaudio-utils
+  python3-cairo gir1.2-gtk-4.0 gir1.2-adw-1 pulseaudio-utils \
+  gir1.2-secret-1 gnome-keyring \
+  gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base \
+  gstreamer1.0-plugins-good
+sudo apt install gstreamer1.0-pulseaudio  # optional, for real audio sync
 sudo apt install libgtk4-layer-shell0  # optional, when available
+sudo apt install gir1.2-vte-3.91 libvte-2.91-gtk4-0
 sudo apt install python3-opencv python3-numpy  # optional, for face scan
 ```
+
+### Gmail Mail
+
+The Mail button connects to one Gmail account using IMAP and SMTP over TLS.
+Enable 2-Step Verification in your Google Account, then create an App Password
+from **Security → 2-Step Verification → App passwords**. Enter your Gmail
+address and that App Password in the Mail page; do not enter your regular
+Google password. Linux Notch keeps the App Password in the desktop Secret
+Service keyring and stores only the account address in its settings. The Mail
+page lists unread messages; opening one marks it read. Remote images in HTML
+mail are not loaded.
 
 Run from the checkout:
 
@@ -113,7 +146,7 @@ private Mutter APIs; test every GNOME Shell release before treating it as
 supported.
 
 As a temporary XWayland alternative, run `GDK_BACKEND=x11 linux-notch`. This
-uses the X11 backend for top-center placement when an XWayland display is
+uses the X11 backend for bottom-center placement when an XWayland display is
 available; GNOME Shell helper remains the native Wayland path.
 
 ### Login autostart
@@ -121,6 +154,27 @@ available; GNOME Shell helper remains the native Wayland path.
 ```sh
 systemctl --user enable --now linux-notch.service
 ```
+
+### Terminal
+
+The terminal starts a user shell the first time its feature page opens. Its VTE
+widget and shell remain alive while the notch is hidden, so long-running
+commands continue when you navigate Back or collapse the island. Keyboard
+shortcuts are `Ctrl+Shift+C/V` for copy/paste and `Ctrl+Plus/Minus/0` for font
+scaling. The app removes its `PYTHONPATH`, `PYTHONHOME`, `GDK_BACKEND`, virtual
+environment marker, and matching virtualenv `bin` entry from the shell
+environment.
+
+On GNOME, a custom shortcut can toggle the terminal page from anywhere:
+
+1. Open Settings → Keyboard → Custom Shortcuts.
+2. Set the command to `gapplication action org.linuxnotch.LinuxNotch toggle-terminal`.
+3. Assign a shortcut such as `Ctrl+grave`.
+
+The application does not register a global shortcut itself. Esc is passed to
+the shell (for example, to Vim); use the page Back button to navigate.
+For GNOME Wayland keyboard focus, install/reload the included Shell extension
+after updating Linux Notch so its `Focus` helper method is available.
 
 For desktops without systemd user services, copy the XDG autostart entry:
 

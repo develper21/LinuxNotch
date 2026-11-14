@@ -67,13 +67,14 @@ re-arms in a locked session.
 The extension (`session-modes: ["user", "unlock-dialog"]`) hooks into
 `Main.screenShield.connect('locked-changed')`:
 1. **Idle/Closed**: Nothing is visible during normal desktop usage.
-2. **Lock Screen Trigger**: When screen locks, the notch eases down from the top
-   edge using Cairo outward-curve shoulder geometry and `Clutter.AnimationMode.EASE_OUT_BACK`.
+2. **Lock Screen Trigger**: When the unlock prompt opens, the notch eases up
+   from the bottom edge using Cairo outward-curve shoulder geometry and
+   `Clutter.AnimationMode.EASE_OUT_BACK`.
 3. **Live Scan**: Renders live face outline and 5 landmark dots from `ScanFrame`.
 4. **Success**: Shows a green checkmark + "Welcome", waiting ~400 ms before
    calling `Main.screenShield.deactivate(true)` to unlock.
 5. **Failure / Timeout**: Shows "Face not recognized. Enter password", and after
-   3 seconds the notch smoothly eases back into the top edge. The password box
+   3 seconds the notch smoothly eases back below the bottom edge. The password box
    remains fully accessible and functional below at all times.
 
 ## Security & Hardening

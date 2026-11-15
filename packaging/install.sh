@@ -18,15 +18,22 @@ fi
 
 if command -v pacman >/dev/null; then
   pacman -S --noconfirm --needed python python-gobject python-cairo gtk4 \
-    libadwaita libpulse gtk4-layer-shell
+    libadwaita libpulse gstreamer gst-plugins-base gst-plugins-good \
+    gst-plugin-pulse libsecret gnome-keyring gtk4-layer-shell vte4
 elif command -v apt-get >/dev/null; then
   apt-get install -y python3 python3-gi python3-gi-cairo python3-cairo \
-    gir1.2-gtk-4.0 gir1.2-adw-1 pulseaudio-utils libgtk4-layer-shell0
+    gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-secret-1 gnome-keyring \
+    pulseaudio-utils libgtk4-layer-shell0 \
+    gir1.2-vte-3.91 libvte-2.91-gtk4-0 gir1.2-gstreamer-1.0 \
+    gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+    gstreamer1.0-pulseaudio
 elif command -v dnf >/dev/null; then
   dnf install -y python3 python3-gobject python3-cairo gtk4 libadwaita \
-    pulseaudio-utils gtk4-layer-shell
+    libsecret gnome-keyring pulseaudio-utils gstreamer1 \
+    gstreamer1-plugins-base \
+    gstreamer1-plugins-good gtk4-layer-shell vte291-gtk4
 else
-  say "install Python 3.11+, PyGObject, GTK4, libadwaita, and PulseAudio utilities first"
+  say "install Python 3.11+, PyGObject, GTK4, libadwaita, VTE GTK4, and PulseAudio utilities first"
 fi
 
 say "installing Linux Notch to $PREFIX"

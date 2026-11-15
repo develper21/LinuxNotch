@@ -6,8 +6,8 @@ License:        MIT
 URL:            https://github.com/MarcoZorn/lost-island
 Source0:        linux-notch-%{version}.tar.gz
 BuildArch:      noarch
-Requires:       python3 >= 3.11, python3-gobject, python3-cairo, gtk4, libadwaita, pulseaudio-utils
-Recommends:     gtk4-layer-shell, NetworkManager, upower
+Requires:       python3 >= 3.11, python3-gobject, python3-cairo, gtk4, libadwaita, libsecret, pulseaudio-utils, gstreamer1, gstreamer1-plugins-base, gstreamer1-plugins-good
+Recommends:     gnome-keyring, gtk4-layer-shell, NetworkManager, upower, vte291-gtk4
 
 %description
 A GTK4 desktop island with media, notifications, system indicators, and a

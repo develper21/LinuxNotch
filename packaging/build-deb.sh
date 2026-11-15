@@ -54,8 +54,8 @@ Version: $VER
 Section: utils
 Priority: optional
 Architecture: all
-Depends: python3 (>= 3.11), python3-gi, python3-gi-cairo, python3-cairo, gir1.2-gtk-4.0, gir1.2-adw-1, pulseaudio-utils
-Recommends: libgtk4-layer-shell0, network-manager, upower, python3-opencv, python3-numpy
+Depends: python3 (>= 3.11), python3-gi, python3-gi-cairo, python3-cairo, gir1.2-gtk-4.0, gir1.2-adw-1, gir1.2-secret-1, pulseaudio-utils, gir1.2-gstreamer-1.0, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good
+Recommends: gnome-keyring, libgtk4-layer-shell0, network-manager, upower, gir1.2-vte-3.91, libvte-2.91-gtk4-0, gstreamer1.0-pulseaudio, python3-opencv, python3-numpy
 Maintainer: Linux Notch contributors
 Homepage: https://github.com/MarcoZorn/lost-island
 Description: Native island overlay for Linux desktops

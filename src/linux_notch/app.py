@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import logging
 import os
 import sys
 
@@ -31,7 +32,7 @@ def _ensure_backend_env() -> None:
 
 _ensure_backend_env()
 
-import gi
+import gi  # noqa: E402
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
@@ -45,7 +46,8 @@ from linux_notch.services.audio import AudioService  # noqa: E402
 from linux_notch.services.bluetooth import BluetoothService  # noqa: E402
 from linux_notch.services.clipboard import ClipboardHistoryService  # noqa: E402
 from linux_notch.services.claude_usage import ClaudeUsageService  # noqa: E402
-from linux_notch.services.mpris import MprisService  # noqa: E402
+from linux_notch.services.local_music import LocalMusicPlayer  # noqa: E402
+from linux_notch.services.mail import MailService  # noqa: E402
 from linux_notch.services.network import NetworkService  # noqa: E402
 from linux_notch.services.notify import NotifyService  # noqa: E402
 from linux_notch.services.power import PowerService  # noqa: E402
@@ -55,6 +57,7 @@ from linux_notch.services.sounds import play_sound  # noqa: E402
 from linux_notch.ui.island import Island  # noqa: E402
 
 CSS_PATH = os.path.join(os.path.dirname(__file__), "ui", "style.css")
+logger = logging.getLogger(__name__)
 
 
 class LostIsland(Adw.Application):
@@ -68,6 +71,10 @@ class LostIsland(Adw.Application):
         self._css_provider: Gtk.CssProvider | None = None
         self._backend = None
         self._activity_service: ActivityDBusService | None = None
+        self.mail_service = MailService()
+        toggle_terminal = Gio.SimpleAction.new("toggle-terminal", None)
+        toggle_terminal.connect("activate", lambda *_: self.toggle_terminal())
+        self.add_action(toggle_terminal)
         for opt, short, desc in (
             ("toggle", "t", "Expand/collapse the island"),
             ("settings", "s", "Open settings in the island"),
@@ -104,6 +111,24 @@ class LostIsland(Adw.Application):
         if opts.contains("settings"):
             self.open_settings()
         return 0
+
+    def toggle_terminal(self) -> None:
+        if self.island is None:
+            self.do_activate()
+        if self.island is None:
+            return
+        expanded = self.island.expanded
+        if "terminal" not in expanded.pages:
+            self.open_settings()
+            return
+        if (
+            self.island.state == "expanded"
+            and expanded.page_stack.get_visible_child_name() == "terminal"
+        ):
+            self.island.collapse()
+            return
+        self.island.expand()
+        expanded.show_page("terminal")
 
     def do_activate(self):
         if self.win:
@@ -148,11 +173,22 @@ class LostIsland(Adw.Application):
         self.island = Island(self.cfg, self.media, self.power,
                              weather=self.weather, system=self.system,
                              on_settings=self.apply_config,
-                             clipboard=self.clipboard)
+                             clipboard=self.clipboard,
+                             on_terminal_focus=self._focus_terminal,
+                             mail_service=self.mail_service)
         self._wire_services()
         self.win.set_child(self.island)
         self.win.present()
 
+    def _focus_terminal(self) -> None:
+        if self.win is not None:
+            self.win.present()
+        focus = getattr(self._backend, "focus", None)
+        if focus is not None:
+            try:
+                focus()
+            except GLib.Error as error:
+                logger.warning("GNOME helper could not focus terminal: %s", error)
     def _load_css(self):
         display = Gdk.Display.get_default()
         if self._css_provider:
@@ -187,10 +223,15 @@ class LostIsland(Adw.Application):
             self.island.pill.mochi.outfit_changed()
             self.island.on_media_changed()
             self.island.expanded.refresh_battery()
+            self.island.pill.update_visualizer()
 
     def rebuild(self):
         if self.clipboard:
             self.clipboard.set_recording(False)
+        if self.island:
+            self.island.stop_visualizer()
+        if hasattr(self, "media") and hasattr(self.media, "stop"):
+            self.media.stop()
         if self._backend:
             self._backend.shutdown()
             self._backend = None
@@ -205,8 +246,8 @@ class LostIsland(Adw.Application):
     def _build_services(self):
         mods = self.cfg.get("modules", {})
         self.media = (
-            MprisService()
-            if mods.get("music", True) or mods.get("spotify", True)
+            LocalMusicPlayer(self.cfg.get("music_directory", "~/Music"))
+            if mods.get("music", True)
             else _NullMedia()
         )
         self.power = PowerService()
@@ -231,9 +272,8 @@ class LostIsland(Adw.Application):
 
     def _wire_services(self):
         isl = self.island
-        if isinstance(self.media, MprisService):
+        if isinstance(self.media, LocalMusicPlayer):
             self.media.connect("changed", lambda *_: isl.on_media_changed())
-            self.media.connect("art-ready", lambda *_: isl.on_media_changed())
         self.power.connect(
             "changed", lambda *_: isl.expanded.refresh_battery())
         if self.cfg.get("modules", {}).get("battery", True):
@@ -274,6 +314,11 @@ class LostIsland(Adw.Application):
     def do_shutdown(self):
         if self.clipboard:
             self.clipboard.set_recording(False)
+        if self.island:
+            self.island.stop_visualizer()
+        if hasattr(self, "media") and hasattr(self.media, "stop"):
+            self.media.stop()
+        self.mail_service.stop()
         if self._activity_service:
             self._activity_service.stop()
             self._activity_service = None
@@ -297,7 +342,11 @@ class _NullMedia:
 
 def main() -> int:
     app = LostIsland()
-    return app.run(sys.argv)
+    try:
+        return app.run(sys.argv)
+    except KeyboardInterrupt:
+        logger.info("Received Ctrl+C; Linux Notch shut down cleanly.")
+        return 130
 
 
 if __name__ == "__main__":

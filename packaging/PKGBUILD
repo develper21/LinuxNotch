@@ -7,10 +7,14 @@ arch=('any')
 url="https://github.com/MarcoZorn/lost-island"
 license=('MIT')
 depends=('python>=3.11' 'python-gobject' 'python-cairo' 'gtk4' 'libadwaita'
-         'libpulse')
+         'libpulse' 'gstreamer' 'gst-plugins-base' 'gst-plugins-good'
+         'libsecret')
 optdepends=('networkmanager: connectivity tile and peeks'
             'upower: battery ring and charge peeks'
+            'gnome-keyring: secure storage for Gmail App Passwords'
+            'gst-plugin-pulse: real audio-sync equalizer visualization'
             'gtk4-layer-shell: native Wayland layer-shell backend'
+            'vte4: embedded GTK4 terminal'
             'python-opencv: local face scan daemon'
             'python-numpy: local face scan daemon')
 source=("$pkgname-$pkgver.tar.gz")

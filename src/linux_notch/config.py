@@ -17,8 +17,8 @@ CACHE_DIR = os.path.join(
 )
 
 DEFAULTS = {
-    # top margin in px between screen edge and the island
-    "margin_top": 0,
+    # bottom margin in px between screen edge and the island
+    "margin_bottom": -28,
     # sit on top of panels/bars instead of being pushed below them
     "overlap_panel": True,
     # monitor connector name ("" = primary / compositor default)
@@ -32,6 +32,8 @@ DEFAULTS = {
     "opacity": 0.97,
     # 24h clock
     "clock_24h": True,
+    # closed-notch equalizer input: "auto", "real", or "synthetic"
+    "viz_mode": "auto",
     # seconds a peek (volume / battery / notification) stays visible
     "peek_seconds": 2.2,
     # clipboard history is opt-in and stored only on this device
@@ -48,9 +50,9 @@ DEFAULTS = {
         "system": True,
         "toggles": True,
         "clipboard": True,
-        "spotify": True,
         "todos": True,
         "face": True,
+        "terminal": True,
         # Claude usage reads Claude Code credentials only when explicitly enabled.
         "claude_usage": False,
     },
@@ -62,6 +64,10 @@ DEFAULTS = {
     "face_challenge": False,
     # weather location ("" = auto by IP); any wttr.in place name works
     "weather_city": "",
+    # local music library root directory
+    "music_directory": "~/Music",
+    # Gmail address; the app password is stored only in the desktop keyring.
+    "mail_account": "",
     # accent color used for progress bars and highlights
     "accent": "#ff9f0a",
     # Mochi appearance and sound effects
@@ -84,7 +90,21 @@ def _merge(base: dict, override: dict) -> dict:
 def load() -> dict:
     try:
         with open(CONFIG_PATH) as f:
-            return _merge(DEFAULTS, json.load(f))
+            stored = json.load(f)
+        if (
+            isinstance(stored, dict)
+            and "margin_top" in stored
+            and (
+                "margin_bottom" not in stored
+                or stored.get("margin_bottom") == 0
+            )
+        ):
+            old_margin = stored["margin_top"]
+            if isinstance(old_margin, (int, float)) and not isinstance(
+                old_margin, bool
+            ):
+                stored["margin_bottom"] = old_margin - 28
+        return _merge(DEFAULTS, stored)
     except (OSError, ValueError):
         return dict(DEFAULTS)
 

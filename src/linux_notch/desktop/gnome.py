@@ -56,7 +56,7 @@ class GnomeBackend:
 
     def probe(self) -> Capabilities:
         return Capabilities(
-            anchor_top_center=True,
+            anchor_bottom_center=True,
             above_panels=True,
             above_fullscreen=False,
             click_through_outside=True,
@@ -79,7 +79,7 @@ class GnomeBackend:
                 (
                     str(config.get("app_id", "org.linuxnotch.LinuxNotch")),
                     str(config.get("monitor", "")),
-                    int(config.get("margin_top", 0)),
+                    int(config.get("margin_bottom", -28)),
                 ),
             ),
             None,
@@ -99,7 +99,9 @@ class GnomeBackend:
             None,
         )
 
-    def set_geometry(self, monitor: str, width: int, height: int, margin_top: int) -> None:
+    def set_geometry(
+        self, monitor: str, width: int, height: int, margin_bottom: int
+    ) -> None:
         _, GLib = _gio()
         self._connection.call_sync(
             BUS_NAME,
@@ -107,6 +109,20 @@ class GnomeBackend:
             INTERFACE,
             "SetSize",
             GLib.Variant("(ii)", (width, height)),
+            None,
+            0,
+            3000,
+            None,
+        )
+
+    def focus(self) -> None:
+        _, GLib = _gio()
+        self._connection.call_sync(
+            BUS_NAME,
+            OBJECT_PATH,
+            INTERFACE,
+            "Focus",
+            GLib.Variant("()", ()),
             None,
             0,
             3000,

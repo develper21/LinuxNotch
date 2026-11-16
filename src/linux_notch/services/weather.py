@@ -1,13 +1,13 @@
-"""Weather tile backed by wttr.in.
+"""Weather status and tile backed by wttr.in.
 
-Deliberately not a poller: a fetch happens only when the expanded card asks
-for one and the cached value is older than 30 minutes. Closed island = zero
-network traffic.
+Fetches start when the island becomes visible and reuse cached data for
+30 minutes. The request runs off the GTK thread.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 import urllib.parse
@@ -16,6 +16,7 @@ import urllib.request
 from gi.repository import GLib, GObject
 
 TTL = 30 * 60
+logger = logging.getLogger(__name__)
 
 # wttr.in weather codes → (emoji-free label, symbolic icon)
 _ICONS = {
@@ -41,6 +42,7 @@ class WeatherService(GObject.Object):
         self.temp = ""
         self.desc = ""
         self.icon = "weather-clear-symbolic"
+        self.error = ""
         self._stamp = 0.0
         self._busy = False
 
@@ -54,28 +56,57 @@ class WeatherService(GObject.Object):
         threading.Thread(target=self._fetch, daemon=True).start()
 
     def _fetch(self):
-        url = f"https://wttr.in/{urllib.parse.quote(self.city)}?format=j1"
+        city = self.city.strip()
+        url = f"https://wttr.in/{urllib.parse.quote(city, safe='')}?format=j1"
         try:
             with urllib.request.urlopen(url, timeout=8) as r:
                 data = json.load(r)
             now = data["current_condition"][0]
             temp = f"{now['temp_C']}°"
             desc = now["weatherDesc"][0]["value"]
-            code = now["weatherCode"]
-        except Exception:
-            self._busy = False
+            weather_code = int(now["weatherCode"])
+            code = str(weather_code)
+        except (
+            OSError,
+            TimeoutError,
+            json.JSONDecodeError,
+            KeyError,
+            IndexError,
+            TypeError,
+            ValueError,
+        ) as error:
+            error_message = str(error)
+            logger.warning(
+                "Weather request failed for %s: %s",
+                city or "automatic location",
+                error_message,
+            )
+
+            def failed():
+                self.error = error_message
+                self.temp = "—"
+                self.desc = "Weather unavailable"
+                self._busy = False
+                self.emit("changed", self.temp, self.desc, self.icon)
+                return False
+
+            GLib.idle_add(failed)
             return
         icon = _ICONS.get(code)
         if icon is None:
             # coarse buckets: thunder, snow, rain, default clouds
-            n = int(code)
-            icon = ("weather-storm-symbolic" if n in (200, 386, 389, 392, 395)
-                    else "weather-snow-symbolic" if n >= 320
-                    else "weather-showers-symbolic" if n >= 263
-                    else "weather-few-clouds-symbolic")
+            if weather_code in (200, 386, 389, 392, 395):
+                icon = "weather-storm-symbolic"
+            elif weather_code >= 320:
+                icon = "weather-snow-symbolic"
+            elif weather_code >= 263:
+                icon = "weather-showers-symbolic"
+            else:
+                icon = "weather-few-clouds-symbolic"
 
         def done():
             self.temp, self.desc, self.icon = temp, desc, icon
+            self.error = ""
             self._stamp = time.time()
             self._busy = False
             self.emit("changed", temp, desc, icon)

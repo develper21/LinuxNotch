@@ -42,7 +42,7 @@ class LayerShellBackend:
 
     def probe(self) -> Capabilities:
         return Capabilities(
-            anchor_top_center=True,
+            anchor_bottom_center=True,
             above_panels=True,
             above_fullscreen=True,
             click_through_outside=True,
@@ -59,8 +59,9 @@ class LayerShellBackend:
         ls.set_namespace(window, "linux-notch")
         layer = ls.Layer.OVERLAY if config.get("layer") == "overlay" else ls.Layer.TOP
         ls.set_layer(window, layer)
-        ls.set_anchor(window, ls.Edge.TOP, True)
-        ls.set_margin(window, ls.Edge.TOP, int(config.get("margin_top", 0)))
+        ls.set_anchor(window, ls.Edge.BOTTOM, True)
+        ls.set_margin(
+            window, ls.Edge.BOTTOM, int(config.get("margin_bottom", -28)))
         ls.set_exclusive_zone(
             window, -1 if config.get("overlap_panel", True) else 0
         )
@@ -76,12 +77,14 @@ class LayerShellBackend:
                 self._layer_shell.set_monitor(window, monitor)
                 return
 
-    def set_geometry(self, monitor: str, width: int, height: int, margin_top: int) -> None:
+    def set_geometry(
+        self, monitor: str, width: int, height: int, margin_bottom: int
+    ) -> None:
         if self._window is None:
             return
         self._window.set_default_size(width, height)
         self._layer_shell.set_margin(
-            self._window, self._layer_shell.Edge.TOP, margin_top
+            self._window, self._layer_shell.Edge.BOTTOM, margin_bottom
         )
         self._pick_monitor(self._window, monitor)
 

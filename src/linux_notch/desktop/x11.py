@@ -6,7 +6,7 @@ import os
 from collections.abc import Callable
 from typing import Any
 
-from linux_notch.desktop.backend import Rect
+from linux_notch.desktop.backend import Rect, bottom_center_position
 from linux_notch.desktop.capabilities import Capabilities
 
 
@@ -63,6 +63,7 @@ class X11Backend:
         self._monitor_handler = 0
         self._tick_handler = 0
         self._last_width = 0
+        self._last_height = 0
         self._monitor_callback: Callable[[], None] | None = None
         self._config: dict = {}
         self._shape = None
@@ -116,7 +117,7 @@ class X11Backend:
 
     def probe(self) -> Capabilities:
         return Capabilities(
-            anchor_top_center=True,
+            anchor_bottom_center=True,
             above_panels=True,
             above_fullscreen=False,
             click_through_outside=self._shape is not None,
@@ -141,8 +142,10 @@ class X11Backend:
         if self._window is None or not self._window_id:
             return True
         width = widget.get_width()
-        if width > 0 and width != self._last_width:
+        height = widget.get_height()
+        if width > 0 and (width != self._last_width or height != self._last_height):
             self._last_width = width
+            self._last_height = height
             self._move_to_monitor()
         return True
 
@@ -217,16 +220,25 @@ class X11Backend:
             return
         geometry = monitor.get_geometry()
         width = self._window.get_width()
-        x = geometry.x + max(0, (geometry.width - width) // 2)
-        y = geometry.y + int(self._config.get("margin_top", 0))
+        x, y = bottom_center_position(
+            geometry.x,
+            geometry.y,
+            geometry.width,
+            geometry.height,
+            width,
+            self._window.get_height(),
+            int(self._config.get("margin_bottom", -28)),
+        )
         self._x11.XMoveWindow(self._display, self._window_id, x, y)
         self._x11.XFlush(self._display)
 
-    def set_geometry(self, monitor: str, width: int, height: int, margin_top: int) -> None:
+    def set_geometry(
+        self, monitor: str, width: int, height: int, margin_bottom: int
+    ) -> None:
         if self._window is None:
             return
         self._window.set_default_size(width, height)
-        self._config.update(monitor=monitor, margin_top=margin_top)
+        self._config.update(monitor=monitor, margin_bottom=margin_bottom)
         self._move_to_monitor()
 
     def set_input_region(self, rects: list[Rect]) -> None:
@@ -275,6 +287,7 @@ class X11Backend:
         self._window_id = 0
         self._tick_handler = 0
         self._last_width = 0
+        self._last_height = 0
         self._map_handler = 0
         self._monitor_handler = 0
         self._monitor_callback = None

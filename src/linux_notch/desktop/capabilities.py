@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Capabilities:
-    anchor_top_center: bool
+    anchor_bottom_center: bool
     above_panels: bool
     above_fullscreen: bool
     click_through_outside: bool

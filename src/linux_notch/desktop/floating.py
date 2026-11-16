@@ -9,7 +9,7 @@ class FloatingWindowBackend:
 
     def probe(self) -> Capabilities:
         return Capabilities(
-            anchor_top_center=False,
+            anchor_bottom_center=False,
             above_panels=False,
             above_fullscreen=False,
             click_through_outside=False,
@@ -22,7 +22,9 @@ class FloatingWindowBackend:
     def attach(self, window: object, config: dict) -> None:
         return None
 
-    def set_geometry(self, monitor: str, width: int, height: int, margin_top: int) -> None:
+    def set_geometry(
+        self, monitor: str, width: int, height: int, margin_bottom: int
+    ) -> None:
         return None
 
     def set_input_region(self, rects: list[Rect]) -> None:

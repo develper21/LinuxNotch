@@ -59,51 +59,17 @@ def draw_island_shape(
     ear: float,
     opacity: float = 1.0,
 ) -> None:
-    """Draw the top-attached silhouette with concave upper shoulders."""
+    """Draw the island as a rounded capsule/rectangle without shoulder cutouts."""
     if width <= 0 or height <= 0:
         return
 
-    ear = min(max(ear, 0), width / 2)
-    radius = min(max(radius, 0), (width - 2 * ear) / 2, height / 2)
+    radius = min(max(radius, 0), width / 2, height / 2)
 
     cr.new_path()
-    if ear:
-        cr.move_to(0, 0)
-        cr.arc(0, ear, ear, -math.pi / 2, 0)
-        cr.line_to(ear, height - radius)
-    else:
-        cr.move_to(0, 0)
-        cr.line_to(0, height - radius)
-
-    if radius:
-        cr.arc_negative(
-            ear + radius,
-            height - radius,
-            radius,
-            math.pi,
-            math.pi / 2,
-        )
-    else:
-        cr.line_to(ear, height)
-
-    cr.line_to(width - ear - radius, height)
-    if radius:
-        cr.arc_negative(
-            width - ear - radius,
-            height - radius,
-            radius,
-            math.pi / 2,
-            0,
-        )
-    else:
-        cr.line_to(width - ear, height)
-
-    if ear:
-        cr.line_to(width - ear, ear)
-        cr.arc(width, ear, ear, math.pi, 1.5 * math.pi)
-    else:
-        cr.line_to(width, 0)
-
+    cr.arc(width - radius, radius, radius, -math.pi / 2, 0)
+    cr.arc(width - radius, height - radius, radius, 0, math.pi / 2)
+    cr.arc(radius, height - radius, radius, math.pi / 2, math.pi)
+    cr.arc(radius, radius, radius, math.pi, 1.5 * math.pi)
     cr.close_path()
     cr.set_source_rgba(0, 0, 0, min(1.0, max(0.0, opacity)))
     cr.fill()

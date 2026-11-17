@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import os
 import sqlite3
-import time
 import logging
 import uuid
 
@@ -17,31 +16,39 @@ from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango
 from linux_notch import config
 from linux_notch.services.clipboard import ClipboardHistoryService
 from linux_notch.services.face_client import FaceDaemonClient
-from linux_notch.services.mpris import MprisService, SPOTIFY_BUS_NAME
-from linux_notch.services.spotify import spotify_installed
+from linux_notch.services.mail import MailMessage, MailService, MailSummary
 from linux_notch.ui.draw import BatteryRing, pick_icon
 from linux_notch.ui.mochi import MochiWidget, OUTFITS, draw_mochi
+from linux_notch.ui.terminal import TerminalPage
 
 logger = logging.getLogger(__name__)
 
 FEATURES = (
     ("clipboard", "Clipboard", "edit-paste-symbolic", "clipboard"),
-    ("spotify", "Spotify", "audio-x-generic-symbolic", "spotify"),
+    ("mail", "Mail", "mail-message-new-symbolic", ""),
     ("music", "Music", "audio-x-generic-symbolic", "music"),
     ("system", "Widgets", "view-grid-symbolic", "system"),
     ("todos", "ToDo", "view-list-symbolic", "todos"),
     ("face", "Face Unlock", "avatar-default-symbolic", "face"),
+    ("terminal", "Terminal", "utilities-terminal-symbolic", "terminal"),
 )
-HOME_FEATURES = ("clipboard", "spotify", "music", "system")
+HOME_FEATURES = (
+    "clipboard", "mail", "music", "system",
+    "todos", "face", "terminal",
+)
+HOME_FEATURE_COLUMNS = 4
+ALL_FEATURE_COLUMNS = 4
 
 
 class Expanded(Gtk.Box):
+    KEEP_OPEN_PAGES = frozenset({"terminal"})
+
     def __init__(self, cfg: dict, media, power, weather=None, system=None,
                  on_settings=None,
                  clipboard: ClipboardHistoryService | None = None,
-                 spotify_available: bool | None = None,
                  on_mochi_changed=None, on_content_changed=None,
-                 on_close=None):
+                 on_close=None, on_terminal_focus=None,
+                 mail_service: MailService | None = None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.add_css_class("expanded")
         self.cfg = cfg
@@ -51,22 +58,23 @@ class Expanded(Gtk.Box):
         self.system = system
         self.on_settings = on_settings
         self.on_close = on_close
+        self.on_terminal_focus = on_terminal_focus
         self.on_mochi_changed = on_mochi_changed
         self.on_content_changed = on_content_changed
         self.clipboard = clipboard
-        self.spotify_available = (
-            spotify_installed() if spotify_available is None
-            and cfg.get("modules", {}).get("spotify", True)
-            else bool(spotify_available))
+        self.mail_service = mail_service
 
         self._pos_timer = 0
-        self._spotify_timer = 0
         self._seek_dragging = False
         self._position_us = 0
         self._caffeine: Gio.Subprocess | None = None
+        self._mail_summaries: list[MailSummary] = []
+        self._selected_mail: MailMessage | None = None
+        self._reply_context: MailSummary | None = None
+        self._mail_compose_return_view = "inbox"
 
         self.content = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL, spacing=12)
+            orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self.content.set_hexpand(True)
         self.content.set_halign(Gtk.Align.FILL)
         self.append(self.content)
@@ -79,6 +87,7 @@ class Expanded(Gtk.Box):
         self.page_stack.set_vexpand(True)
 
         self._build_header()
+        self._build_inline_volume_panel()
         self.content.append(self.page_stack)
         self._build_player()
         self._build_toggles()
@@ -90,16 +99,17 @@ class Expanded(Gtk.Box):
             self._build_clipboard_page()
         if cfg.get("modules", {}).get("todos", True):
             self._build_todo_page()
-        if cfg.get("modules", {}).get("spotify", True):
-            self._build_spotify_page()
         self.face_client = FaceDaemonClient()
         if cfg.get("modules", {}).get("face", True):
             self._build_face_page()
+        if cfg.get("modules", {}).get("terminal", True):
+            self._build_terminal_page()
+        self._build_mail_page()
         self._build_features_page()
         self._build_home_page()
         self.page_stack.connect(
             "notify::visible-child-name",
-            lambda *_: self._sync_spotify_timer())
+            lambda *_: self._sync_pos_timer())
         self.show_page("home")
 
         self.connect("map", lambda *_: self._on_map())
@@ -112,12 +122,11 @@ class Expanded(Gtk.Box):
         self.top_button = Gtk.Button()
         self.top_button.add_css_class("tab-btn")
         self.top_button.connect("clicked", self._on_top_button)
-        self.chat_button = Gtk.Button()
-        self.chat_button.add_css_class("tab-btn")
-        self.chat_button.set_icon_name("mail-message-new-symbolic")
-        self.chat_button.set_tooltip_text("Clipboard history")
-        self.chat_button.set_visible(self.clipboard is not None)
-        self.chat_button.connect("clicked", lambda *_: self.show_page("clipboard"))
+        self.mail_button = Gtk.Button()
+        self.mail_button.add_css_class("tab-btn")
+        self.mail_button.set_icon_name("mail-message-new-symbolic")
+        self.mail_button.set_tooltip_text("Open unread mail")
+        self.mail_button.connect("clicked", lambda *_: self.show_page("mail"))
         self.add_button = Gtk.Button()
         self.add_button.add_css_class("tab-btn")
         self.add_button.set_icon_name("list-add-symbolic")
@@ -134,9 +143,8 @@ class Expanded(Gtk.Box):
         self.volume_button = Gtk.Button()
         self.volume_button.add_css_class("tab-btn")
         self.volume_button.set_icon_name("audio-volume-high-symbolic")
-        self.volume_button.set_tooltip_text("Volume")
-        self.volume_button.connect(
-            "clicked", lambda *_: self.show_page("volume"))
+        self.volume_button.set_tooltip_text("Show sound controls")
+        self.volume_button.connect("clicked", self._toggle_inline_volume)
 
         self.clear_clipboard_button = Gtk.Button(label="Clear all")
         self.clear_clipboard_button.add_css_class("clipboard-clear-btn")
@@ -148,7 +156,7 @@ class Expanded(Gtk.Box):
         self.net_chip.set_visible(False)
 
         row.append(self.top_button)
-        row.append(self.chat_button)
+        row.append(self.mail_button)
         row.append(self.add_button)
         row.append(spacer)
         row.append(self.bt_chip)
@@ -157,6 +165,51 @@ class Expanded(Gtk.Box):
         row.append(self.volume_button)
         row.append(self.settings_button)
         self.content.append(row)
+
+    def _build_inline_volume_panel(self):
+        panel = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        panel.add_css_class("volume-inline-panel")
+        self.inline_volume_icon = Gtk.Image.new_from_icon_name(
+            "audio-volume-high-symbolic")
+        self.inline_volume_icon.set_pixel_size(16)
+        label = Gtk.Label(label="Volume")
+        label.add_css_class("tile-sub")
+        self.inline_vol = Gtk.Scale.new_with_range(
+            Gtk.Orientation.HORIZONTAL, 0, 100, 1)
+        self.inline_vol.set_hexpand(True)
+        self.inline_vol.set_draw_value(False)
+        self.inline_vol.set_size_request(160, -1)
+        self.inline_vol.connect("change-value", self._on_vol_set)
+        self.inline_vol_value = Gtk.Label(label="—")
+        self.inline_vol_value.add_css_class("seek-time")
+        panel.append(self.inline_volume_icon)
+        panel.append(label)
+        panel.append(self.inline_vol)
+        panel.append(self.inline_vol_value)
+
+        self.inline_volume_revealer = Gtk.Revealer()
+        self.inline_volume_revealer.set_transition_type(
+            Gtk.RevealerTransitionType.SLIDE_DOWN)
+        self.inline_volume_revealer.set_transition_duration(180)
+        self.inline_volume_revealer.set_reveal_child(False)
+        self.inline_volume_revealer.set_child(panel)
+        self.content.append(self.inline_volume_revealer)
+        self.inline_volume_revealer.connect(
+            "notify::reveal-child", lambda *_: self._resize_content())
+        self.inline_volume_revealer.connect(
+            "notify::child-revealed", lambda *_: self._resize_content())
+
+    def _toggle_inline_volume(self, *_):
+        reveal = not self.inline_volume_revealer.get_reveal_child()
+        self.inline_volume_revealer.set_reveal_child(reveal)
+        self.volume_button.set_tooltip_text(
+            "Hide sound controls" if reveal else "Show sound controls")
+        if self.on_content_changed is not None:
+            self.on_content_changed()
+
+    def _resize_content(self):
+        if self.on_content_changed is not None:
+            self.on_content_changed()
 
     def _on_top_button(self, *_):
         if self.page_stack.get_visible_child_name() != "home":
@@ -175,6 +228,15 @@ class Expanded(Gtk.Box):
         self.clear_clipboard_button.set_visible(name == "clipboard")
         if name == "face" and hasattr(self, "_refresh_face_status"):
             self._refresh_face_status()
+        if name == "terminal":
+            self.terminal_page.on_show()
+            if self.on_terminal_focus is not None:
+                self.on_terminal_focus()
+        if name == "music":
+            self.refresh_music()
+            self.refresh_music_library()
+        if name == "mail":
+            self._show_mail_page()
         if self.on_content_changed is not None:
             self.on_content_changed()
 
@@ -208,11 +270,17 @@ class Expanded(Gtk.Box):
         button.set_hexpand(True)
         button.set_tooltip_text(title)
         content = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        content.set_halign(Gtk.Align.CENTER)
+        content.set_valign(Gtk.Align.CENTER)
         image = Gtk.Image.new_from_icon_name(icon)
-        image.set_pixel_size(18)
+        image.set_pixel_size(22)
         label = Gtk.Label(label=title)
         label.add_css_class("feature-btn-label")
+        label.set_halign(Gtk.Align.CENTER)
+        label.set_justify(Gtk.Justification.CENTER)
+        label.set_wrap(True)
+        label.set_max_width_chars(10)
         content.append(image)
         content.append(label)
         button.set_child(content)
@@ -221,45 +289,591 @@ class Expanded(Gtk.Box):
         return button
 
     def _build_features_page(self):
-        buttons = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        for feature in self._available_features():
-            buttons.append(self._feature_button(feature))
+        grid = Gtk.Grid()
+        grid.add_css_class("features-grid")
+        grid.set_column_homogeneous(True)
+        grid.set_column_spacing(8)
+        grid.set_row_spacing(8)
+        grid.set_hexpand(True)
+        grid.set_vexpand(True)
+        for index, feature in enumerate(self._available_features()):
+            grid.attach(
+                self._feature_button(feature),
+                index % ALL_FEATURE_COLUMNS,
+                index // ALL_FEATURE_COLUMNS,
+                1,
+                1,
+            )
 
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroll.set_min_content_height(150)
-        scroll.set_child(buttons)
+        scroll.set_min_content_height(180)
+        scroll.set_hexpand(True)
+        scroll.set_vexpand(True)
+        scroll.set_child(grid)
         self._add_feature_page("features", "All features", scroll)
+
+    def _build_mail_page(self):
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        body.add_css_class("mail-page")
+
+        self.mail_setup = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=8,
+        )
+        self.mail_setup.add_css_class("mail-setup")
+        self.mail_setup.set_halign(Gtk.Align.CENTER)
+        self.mail_setup.set_valign(Gtk.Align.CENTER)
+        setup_title = Gtk.Label(label="Connect a Gmail account")
+        setup_title.add_css_class("track-title")
+        self.mail_email_entry = Gtk.Entry()
+        self.mail_email_entry.set_placeholder_text("you@gmail.com")
+        self.mail_email_entry.set_hexpand(True)
+        self.mail_password_entry = Gtk.Entry()
+        self.mail_password_entry.set_placeholder_text("Gmail App Password")
+        self.mail_password_entry.set_visibility(False)
+        self.mail_password_entry.set_input_purpose(
+            Gtk.InputPurpose.PASSWORD)
+        self.mail_password_entry.set_hexpand(True)
+        credential_note = Gtk.Label(
+            label="The app password is stored in your desktop keyring, "
+                  "not in Linux Notch settings.",
+            wrap=True,
+        )
+        credential_note.add_css_class("track-artist")
+        self.mail_setup_status = Gtk.Label(
+            label="Use a Gmail App Password. Your normal Google password "
+                  "will not work.",
+            wrap=True,
+        )
+        self.mail_setup_status.add_css_class("tile-sub")
+        connect_button = Gtk.Button(label="Connect Gmail")
+        connect_button.add_css_class("suggested-action")
+        connect_button.connect("clicked", self._connect_mail_account)
+        self.mail_email_entry.connect(
+            "activate", lambda *_: self.mail_password_entry.grab_focus())
+        self.mail_password_entry.connect(
+            "activate", self._connect_mail_account)
+        self.mail_setup.append(setup_title)
+        self.mail_setup.append(self.mail_email_entry)
+        self.mail_setup.append(self.mail_password_entry)
+        self.mail_setup.append(credential_note)
+        self.mail_setup.append(self.mail_setup_status)
+        self.mail_setup.append(connect_button)
+
+        toolbar = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=6,
+        )
+        self.mail_account_label = Gtk.Label(xalign=0)
+        self.mail_account_label.add_css_class("feature-title")
+        self.mail_account_label.set_hexpand(True)
+        self.mail_account_label.set_ellipsize(Pango.EllipsizeMode.END)
+        refresh_button = Gtk.Button.new_from_icon_name("view-refresh-symbolic")
+        refresh_button.set_tooltip_text("Refresh unread mail")
+        refresh_button.connect("clicked", lambda *_: self._refresh_mail())
+        compose_button = Gtk.Button(label="Compose")
+        compose_button.add_css_class("suggested-action")
+        compose_button.connect("clicked", lambda *_: self._compose_mail())
+        manage_button = Gtk.Button(label="Account")
+        manage_button.set_tooltip_text("Update or disconnect this account")
+        manage_button.connect("clicked", self._toggle_mail_setup)
+        self.mail_disconnect_button = Gtk.Button()
+        self.mail_disconnect_button.set_icon_name("system-log-out-symbolic")
+        self.mail_disconnect_button.add_css_class("mail-disconnect-button")
+        self.mail_disconnect_button.set_has_frame(False)
+        self.mail_disconnect_button.set_tooltip_text("Disconnect this account")
+        self.mail_disconnect_button.connect(
+            "clicked", self._disconnect_mail_account)
+        toolbar.append(self.mail_account_label)
+        toolbar.append(refresh_button)
+        toolbar.append(compose_button)
+        toolbar.append(manage_button)
+        toolbar.append(self.mail_disconnect_button)
+
+        self.mail_status = Gtk.Label(label="", xalign=0, wrap=True)
+        self.mail_status.add_css_class("tile-sub")
+        self.mail_workspace = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=8,
+        )
+        self.mail_workspace.add_css_class("mail-workspace")
+        self.mail_workspace.set_vexpand(True)
+
+        rail = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=6,
+        )
+        rail.add_css_class("mail-account-rail")
+        self.mail_account_button = Gtk.Button(label="M")
+        self.mail_account_button.add_css_class("mail-account-button")
+        self.mail_account_button.set_tooltip_text("Show this account's unread mail")
+        self.mail_account_button.connect(
+            "clicked", lambda *_: self._refresh_mail())
+        rail.append(self.mail_account_button)
+
+        inbox_view = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=6,
+        )
+        inbox_view.add_css_class("mail-inbox-view")
+        unread_title = Gtk.Label(label="Unread", xalign=0)
+        unread_title.add_css_class("track-title")
+        self.mail_unread_count = Gtk.Label(label="0", xalign=1)
+        self.mail_unread_count.add_css_class("tile-sub")
+        unread_header = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=4,
+        )
+        unread_header.append(unread_title)
+        unread_header.append(self.mail_unread_count)
+        self.mail_list = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=4,
+        )
+        self.mail_list_scroll = Gtk.ScrolledWindow()
+        self.mail_list_scroll.set_policy(
+            Gtk.PolicyType.NEVER,
+            Gtk.PolicyType.AUTOMATIC,
+        )
+        self.mail_list_scroll.set_child(self.mail_list)
+        self.mail_list_scroll.set_vexpand(True)
+        inbox_view.append(unread_header)
+        inbox_view.append(self.mail_list_scroll)
+
+        self.mail_detail_stack = Gtk.Stack()
+        self.mail_detail_stack.set_hexpand(True)
+        self.mail_detail_stack.set_vexpand(True)
+        self.mail_detail_stack.add_named(
+            inbox_view, "inbox")
+        self.mail_detail_stack.add_named(
+            self._build_mail_reader(), "reader")
+        self.mail_detail_stack.add_named(
+            self._build_mail_composer(), "compose")
+        self.mail_detail_stack.set_visible_child_name("inbox")
+
+        self.mail_workspace.append(rail)
+        self.mail_workspace.append(self.mail_detail_stack)
+
+        body.append(self.mail_setup)
+        self.mail_toolbar = toolbar
+        body.append(self.mail_toolbar)
+        body.append(self.mail_status)
+        body.append(self.mail_workspace)
+        self._add_feature_page("mail", "Mail", body)
+        self._show_mail_page(refresh=False)
+
+    def _build_mail_reader(self):
+        reader = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=8,
+        )
+        reader.add_css_class("mail-reader")
+        reader.set_hexpand(True)
+        reader.set_vexpand(True)
+        reader_header = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=8,
+        )
+        back_button = Gtk.Button.new_from_icon_name("go-previous-symbolic")
+        back_button.set_tooltip_text("Back to unread mail")
+        self.mail_back_button = back_button
+        back_button.connect(
+            "clicked",
+            lambda *_: self.mail_detail_stack.set_visible_child_name("inbox"),
+        )
+        reader_header.append(back_button)
+        reader_header.append(Gtk.Label(label="Email", xalign=0))
+        reader.append(reader_header)
+        self.mail_subject = Gtk.Label(xalign=0, wrap=True)
+        self.mail_subject.add_css_class("track-title")
+        self.mail_subject.set_hexpand(True)
+        self.mail_sender = Gtk.Label(xalign=0, wrap=True)
+        self.mail_sender.add_css_class("tile-sub")
+        self.mail_date = Gtk.Label(xalign=0, wrap=True)
+        self.mail_date.add_css_class("tile-sub")
+        self.mail_body_label = Gtk.Label(xalign=0, yalign=0)
+        self.mail_body_label.set_wrap(True)
+        self.mail_body_label.set_selectable(True)
+        self.mail_body_label.set_hexpand(True)
+        self.mail_body_label.set_vexpand(True)
+        self.mail_body_label.set_halign(Gtk.Align.FILL)
+        body_scroll = Gtk.ScrolledWindow()
+        body_scroll.set_policy(
+            Gtk.PolicyType.NEVER,
+            Gtk.PolicyType.AUTOMATIC,
+        )
+        body_scroll.set_hexpand(True)
+        body_scroll.add_css_class("mail-body-scroll")
+        body_scroll.set_child(self.mail_body_label)
+        body_scroll.set_vexpand(True)
+        reply_button = Gtk.Button(label="Reply")
+        reply_button.add_css_class("suggested-action")
+        reply_button.set_halign(Gtk.Align.END)
+        reply_button.connect("clicked", lambda *_: self._compose_mail(reply=True))
+        reader.append(self.mail_subject)
+        reader.append(self.mail_sender)
+        reader.append(self.mail_date)
+        reader.append(body_scroll)
+        reader.append(reply_button)
+        return reader
+
+    def _build_mail_composer(self):
+        composer = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=8,
+        )
+        composer.add_css_class("mail-composer")
+        self.mail_to_entry = Gtk.Entry()
+        self.mail_to_entry.set_placeholder_text("To")
+        self.mail_subject_entry = Gtk.Entry()
+        self.mail_subject_entry.set_placeholder_text("Subject")
+        self.mail_compose_body = Gtk.TextView()
+        self.mail_compose_body.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        compose_scroll = Gtk.ScrolledWindow()
+        compose_scroll.set_policy(
+            Gtk.PolicyType.NEVER,
+            Gtk.PolicyType.AUTOMATIC,
+        )
+        compose_scroll.set_child(self.mail_compose_body)
+        compose_scroll.set_vexpand(True)
+        buttons = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=6,
+        )
+        cancel = Gtk.Button(label="Cancel")
+        cancel.connect("clicked", self._cancel_mail_compose)
+        self.mail_send_button = Gtk.Button(label="Send")
+        self.mail_send_button.add_css_class("suggested-action")
+        self.mail_send_button.connect("clicked", self._send_mail)
+        buttons.append(cancel)
+        buttons.append(self.mail_send_button)
+        composer.append(self.mail_to_entry)
+        composer.append(self.mail_subject_entry)
+        composer.append(compose_scroll)
+        composer.append(buttons)
+        return composer
+
+    def _show_mail_page(self, refresh=True):
+        account = self.cfg.get("mail_account", "").strip()
+        self.mail_email_entry.set_text(account)
+        self.mail_account_label.set_label(account or "Gmail")
+        initial = account.partition("@")[0][:1].upper() or "M"
+        self.mail_account_button.set_label(initial)
+        self.mail_setup.set_visible(not bool(account))
+        self.mail_toolbar.set_visible(bool(account))
+        self.mail_disconnect_button.set_visible(bool(account))
+        self.mail_workspace.set_visible(bool(account))
+        if not account:
+            self.mail_detail_stack.set_visible_child_name("inbox")
+        if not account:
+            self.mail_status.set_label("")
+            self.mail_setup_status.set_label(
+                "Use a Gmail App Password. Your normal Google password "
+                "will not work.")
+        elif refresh:
+            self._refresh_mail()
+
+    def _toggle_mail_setup(self, *_):
+        visible = not self.mail_setup.get_visible()
+        self.mail_setup.set_visible(visible)
+        self.mail_email_entry.set_text(
+            self.cfg.get("mail_account", "").strip())
+        if visible:
+            self.mail_password_entry.grab_focus()
+        self._resize_content()
+
+    def _connect_mail_account(self, *_):
+        if self.mail_service is None:
+            self.mail_setup_status.set_label(
+                "Mail support is unavailable in this installation.")
+            return
+        account = self.mail_email_entry.get_text().strip()
+        password = self.mail_password_entry.get_text()
+        self.mail_setup_status.set_label(
+            "Verifying Gmail access and saving the app password securely…")
+        self.mail_setup_status.set_sensitive(False)
+
+        def complete(saved_account, error):
+            self.mail_setup_status.set_sensitive(True)
+            if error:
+                self.mail_setup_status.set_label(error)
+                return
+            if self.cfg.get("mail_account", "").strip() != saved_account:
+                self._mail_summaries.clear()
+                self._selected_mail = None
+                self._render_mail_list()
+                self.mail_detail_stack.set_visible_child_name("inbox")
+            self.cfg["mail_account"] = saved_account
+            try:
+                config.save(self.cfg)
+            except OSError:
+                self.mail_setup_status.set_label(
+                    "The app password is in your keyring, but the account "
+                    "address could not be saved. Check settings-file "
+                    "permissions and try again.")
+                return
+            self.mail_password_entry.set_text("")
+            self._show_mail_page(refresh=False)
+            self._refresh_mail()
+
+        self.mail_service.configure_account(account, password, complete)
+
+    def _disconnect_mail_account(self, *_):
+        account = self.cfg.get("mail_account", "").strip()
+        if not account or self.mail_service is None:
+            return
+        self.mail_status.set_label("Removing saved account…")
+
+        def complete(_result, error):
+            if error:
+                self.mail_status.set_label(error)
+                return
+            self.cfg["mail_account"] = ""
+            try:
+                config.save(self.cfg)
+            except OSError:
+                self._show_mail_page(refresh=False)
+                self.mail_status.set_label(
+                    "The keyring credential was removed, but the account "
+                    "setting could not be saved. Reconnect after fixing "
+                    "settings-file permissions.")
+                return
+            self._mail_summaries.clear()
+            self._selected_mail = None
+            self._render_mail_list()
+            self.mail_detail_stack.set_visible_child_name("inbox")
+            self._show_mail_page(refresh=False)
+            self._resize_content()
+
+        self.mail_service.forget_account(account, complete)
+
+    def _refresh_mail(self):
+        account = self.cfg.get("mail_account", "").strip()
+        if not account or self.mail_service is None:
+            return
+        self.mail_status.set_label("Loading unread mail…")
+
+        def complete(summaries, error):
+            if error:
+                self.mail_status.set_label(error)
+                return
+            selected_uid = (
+                self._selected_mail.summary.uid
+                if self._selected_mail is not None
+                else ""
+            )
+            self._mail_summaries = [
+                summary for summary in summaries
+                if summary.uid != selected_uid
+            ]
+            self.mail_unread_count.set_label(str(len(self._mail_summaries)))
+            self._render_mail_list()
+            self.mail_status.set_label(
+                "Inbox is clear." if not self._mail_summaries
+                else f"{len(self._mail_summaries)} unread email"
+                     f"{'s' if len(self._mail_summaries) != 1 else ''}")
+
+        self.mail_service.fetch_unread(account, complete)
+
+    def _render_mail_list(self):
+        child = self.mail_list.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+            self.mail_list.remove(child)
+            child = next_child
+        for summary in self._mail_summaries:
+            row = Gtk.Button()
+            row.add_css_class("mail-message-row")
+            row.set_hexpand(True)
+            row.set_halign(Gtk.Align.FILL)
+            content = Gtk.Box(
+                orientation=Gtk.Orientation.HORIZONTAL,
+                spacing=10,
+            )
+            icon = Gtk.Image.new_from_icon_name("mail-unread-symbolic")
+            icon.set_pixel_size(18)
+            icon.add_css_class("mail-row-icon")
+            details = Gtk.Box(
+                orientation=Gtk.Orientation.VERTICAL,
+                spacing=2,
+            )
+            details.set_hexpand(True)
+            sender = Gtk.Label(label=summary.sender, xalign=0)
+            sender.add_css_class("mail-sender")
+            sender.set_ellipsize(Pango.EllipsizeMode.END)
+            subject = Gtk.Label(label=summary.subject, xalign=0)
+            subject.add_css_class("mail-subject")
+            subject.set_ellipsize(Pango.EllipsizeMode.END)
+            date = Gtk.Label(label=summary.date, xalign=0)
+            date.add_css_class("mail-date")
+            date.set_ellipsize(Pango.EllipsizeMode.END)
+            details.append(sender)
+            details.append(subject)
+            content.append(icon)
+            content.append(details)
+            content.append(date)
+            row.set_child(content)
+            row.set_tooltip_text(
+                f"{summary.sender}\n{summary.subject}\n{summary.date}")
+            row.connect(
+                "clicked",
+                lambda *_args, item=summary: self._open_mail(item),
+            )
+            self.mail_list.append(row)
+        self._resize_content()
+
+    def _open_mail(self, summary: MailSummary):
+        if self.mail_service is None:
+            return
+        self.mail_status.set_label("Opening email…")
+
+        def complete(message, error):
+            if error:
+                self.mail_status.set_label(error)
+                return
+            self._selected_mail = message
+            self._mail_summaries = [
+                item for item in self._mail_summaries
+                if item.uid != message.summary.uid
+            ]
+            self.mail_unread_count.set_label(str(len(self._mail_summaries)))
+            self._render_mail_list()
+            self.mail_subject.set_label(message.summary.subject)
+            self.mail_sender.set_label(message.summary.sender)
+            self.mail_date.set_label(message.summary.date)
+            self.mail_body_label.set_label(
+                message.body or "(This email has no readable text body.)")
+            self.mail_detail_stack.set_visible_child_name("reader")
+            self.mail_status.set_label("Email marked as read.")
+            self._resize_content()
+
+        self.mail_service.open_message(
+            self.cfg.get("mail_account", "").strip(),
+            summary.uid,
+            complete,
+        )
+
+    def _compose_mail(self, _button=None, reply=False):
+        self._reply_context = None
+        self.mail_to_entry.set_text("")
+        self.mail_subject_entry.set_text("")
+        self.mail_compose_body.get_buffer().set_text("")
+        if reply and self._selected_mail is not None:
+            message = self._selected_mail
+            summary = message.summary
+            self._reply_context = summary
+            self.mail_to_entry.set_text(summary.reply_to)
+            subject = summary.subject
+            if not subject.lower().startswith("re:"):
+                subject = f"Re: {subject}"
+            self.mail_subject_entry.set_text(subject)
+            quote = "\n".join(
+                f"> {line}" for line in message.body.splitlines())
+            self.mail_compose_body.get_buffer().set_text(
+                f"\n\nOn {summary.date}, {summary.sender} wrote:\n{quote}")
+        self._mail_compose_return_view = (
+            "reader"
+            if reply
+            else self.mail_detail_stack.get_visible_child_name()
+        )
+        if self._mail_compose_return_view == "compose":
+            self._mail_compose_return_view = "inbox"
+        self.mail_detail_stack.set_visible_child_name("compose")
+
+    def _cancel_mail_compose(self, *_):
+        self.mail_detail_stack.set_visible_child_name(
+            self._mail_compose_return_view)
+
+    def _send_mail(self, *_):
+        if self.mail_service is None:
+            return
+        start, end = self.mail_compose_body.get_buffer().get_bounds()
+        body = self.mail_compose_body.get_buffer().get_text(
+            start, end, True)
+        self.mail_send_button.set_sensitive(False)
+        self.mail_status.set_label("Sending email…")
+
+        def complete(_result, error):
+            self.mail_send_button.set_sensitive(True)
+            if error:
+                self.mail_status.set_label(error)
+                return
+            self.mail_status.set_label("Email sent.")
+            self.mail_detail_stack.set_visible_child_name(
+                self._mail_compose_return_view)
+            self._reply_context = None
+
+        reply = self._reply_context
+        self.mail_service.send_message(
+            self.cfg.get("mail_account", "").strip(),
+            self.mail_to_entry.get_text().strip(),
+            self.mail_subject_entry.get_text(),
+            body,
+            complete,
+            in_reply_to=reply.message_id if reply else "",
+            references=(
+                " ".join(
+                    part for part in (
+                        reply.references if reply else "",
+                        reply.message_id if reply else "",
+                    ) if part
+                )
+            ),
+        )
+
+    def _build_terminal_page(self):
+        self.terminal_page = TerminalPage()
+        self._add_feature_page("terminal", "Terminal", self.terminal_page)
 
     # -- media player section ---------------------------------------------
 
     def _build_player(self):
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        self.player_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        layout = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        layout.add_css_class("music-layout")
+        self.player_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.player_box.add_css_class("music-preview")
+        self.player_box.set_size_request(260, -1)
 
-        head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
-        art_frame = Gtk.Box()
-        art_frame.add_css_class("art-frame")
-        art_frame.set_overflow(Gtk.Overflow.HIDDEN)
+        self.art_frame = Gtk.Overlay()
+        self.art_frame.add_css_class("art-frame")
+        self.art_frame.set_overflow(Gtk.Overflow.HIDDEN)
+        self.art_frame.set_size_request(144, 144)
+        self.art_frame.set_halign(Gtk.Align.CENTER)
         self.art = Gtk.Picture()
-        self.art.set_size_request(92, 92)
+        self.art.set_size_request(144, 144)
         self.art.set_content_fit(Gtk.ContentFit.COVER)
-        art_frame.append(self.art)
+        self.art_frame.set_child(self.art)
+        self.art_placeholder = Gtk.Image.new_from_icon_name(
+            "audio-x-generic-symbolic")
+        self.art_placeholder.add_css_class("music-art-placeholder")
+        self.art_placeholder.set_pixel_size(44)
+        self.art_placeholder.set_halign(Gtk.Align.CENTER)
+        self.art_placeholder.set_valign(Gtk.Align.CENTER)
+        self.art_frame.add_overlay(self.art_placeholder)
 
         meta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
-        meta.set_valign(Gtk.Align.CENTER)
-        meta.set_hexpand(True)
-        self.title = _label("track-title", 24)
+        meta.set_halign(Gtk.Align.CENTER)
+        self.title = _label("track-title", 26)
+        self.title.set_xalign(0.5)
+        self.title.set_justify(Gtk.Justification.CENTER)
+        self.title.set_max_width_chars(28)
         self.artist = _label("track-artist", 30)
+        self.artist.set_xalign(0.5)
+        self.artist.set_justify(Gtk.Justification.CENTER)
         self.album = _label("track-album", 34)
+        self.album.set_xalign(0.5)
+        self.album.set_justify(Gtk.Justification.CENTER)
         for w in (self.title, self.artist, self.album):
             meta.append(w)
-
-        head.append(art_frame)
-        head.append(meta)
+        self.title.set_visible(False)
+        self.artist.set_visible(False)
+        self.album.set_visible(False)
 
         seek_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.seek_box = seek_box
         self.time_now = Gtk.Label(label="0:00")
         self.time_now.add_css_class("seek-time")
         self.seek = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 1, 1)
@@ -288,22 +902,96 @@ class Expanded(Gtk.Box):
         for b in (self.btn_prev, self.btn_play, self.btn_next):
             controls.append(b)
 
-        self.player_box.append(head)
+        self.player_box.append(self.art_frame)
+        self.player_box.append(meta)
         self.player_box.append(seek_box)
         self.player_box.append(controls)
-        page.append(self.player_box)
+        self.music_status = Gtk.Label(
+            label="", wrap=True, justify=Gtk.Justification.CENTER, xalign=0.5)
+        self.music_status.add_css_class("track-artist")
+        self.music_status.set_visible(False)
+        self.player_box.append(self.music_status)
+        layout.append(self.player_box)
 
-        # idle header shown when nothing plays
-        self.idle_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        self.idle_box.set_halign(Gtk.Align.CENTER)
-        self.big_clock = Gtk.Label()
-        self.big_clock.add_css_class("track-title")
-        self.big_date = Gtk.Label()
-        self.big_date.add_css_class("track-artist")
-        self.idle_box.append(self.big_clock)
-        self.idle_box.append(self.big_date)
-        page.append(self.idle_box)
+        self.music_list = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        music_scroll = Gtk.ScrolledWindow()
+        music_scroll.set_policy(
+            Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        music_scroll.set_min_content_width(240)
+        music_scroll.set_min_content_height(180)
+        music_scroll.set_hexpand(True)
+        music_scroll.set_vexpand(True)
+        music_scroll.set_child(self.music_list)
+        music_scroll.add_css_class("music-library")
+        layout.append(music_scroll)
+        layout.set_vexpand(True)
+        page.append(layout)
+
+        if hasattr(self.media, "connect"):
+            self.media.connect(
+                "library-changed", lambda *_: self.refresh_music_library())
+            self.media.connect("error", self._on_music_error)
+            self.media.connect("art-ready", lambda *_: self.refresh_music())
+        self.refresh_music_library()
         self._add_feature_page("music", "Music", page)
+
+    def refresh_music_library(self):
+        if not hasattr(self, "music_list"):
+            return
+        child = self.music_list.get_first_child()
+        while child is not None:
+            following = child.get_next_sibling()
+            self.music_list.remove(child)
+            child = following
+
+        tracks = getattr(self.media, "tracks", [])
+        for index, track in enumerate(tracks):
+            title = Gtk.Label(label=track.title, xalign=0)
+            title.add_css_class("music-track-title")
+            subtitle_text = track.artist or os.path.relpath(
+                track.path,
+                getattr(self.media, "directory", os.path.dirname(track.path)),
+            )
+            subtitle = Gtk.Label(label=subtitle_text, xalign=0)
+            subtitle.add_css_class("music-track-subtitle")
+            content = Gtk.Box(
+                orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            content.set_halign(Gtk.Align.FILL)
+            content.append(title)
+            content.append(subtitle)
+            button = Gtk.Button()
+            button.add_css_class("music-track-row")
+            button.set_child(content)
+            button.set_tooltip_text(track.path)
+            button.connect(
+                "clicked",
+                lambda _button, track_index=index:
+                    self._play_music_track(track_index),
+            )
+            self.music_list.append(button)
+
+        if not tracks:
+            message = getattr(self.media, "error_message", "")
+            if not message:
+                message = "No supported audio files found in the selected folder."
+            empty = Gtk.Label(label=message, wrap=True, xalign=0.5)
+            empty.add_css_class("track-artist")
+            self.music_list.append(empty)
+        self.refresh_music()
+        if self.on_content_changed is not None:
+            self.on_content_changed()
+
+    def _play_music_track(self, index: int):
+        try:
+            self.media.play_index(index)
+        except (IndexError, OSError, RuntimeError) as error:
+            self._on_music_error(self.media, str(error))
+
+    def _on_music_error(self, _service, message: str):
+        if hasattr(self, "music_status"):
+            self.music_status.set_label(f"Music error: {message}")
+            self.music_status.set_visible(True)
 
     # -- quick toggles ------------------------------------------------------
 
@@ -426,21 +1114,31 @@ class Expanded(Gtk.Box):
             self.weather.connect("changed", self._on_weather)
 
     def _build_footer(self):
-        self.sys_label = Gtk.Label()
-        self.sys_label.add_css_class("sys-stats")
-        self.sys_label.set_visible(self.system is not None)
-        if self.system is not None:
-            self.system.connect("changed", self._on_system)
-        stats = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        stats.set_halign(Gtk.Align.CENTER)
-        stats.append(self.sys_label)
-        self._add_feature_page("system", "System stats", stats)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        body.set_halign(Gtk.Align.CENTER)
+        icon = Gtk.Image.new_from_icon_name("view-grid-symbolic")
+        icon.set_pixel_size(32)
+        title = Gtk.Label(label="Coming soon")
+        title.add_css_class("track-title")
+        description = Gtk.Label(
+            label=(
+                "Desktop widgets that you can add to your desktop are "
+                "coming soon."
+            ),
+            wrap=True,
+            justify=Gtk.Justification.CENTER,
+        )
+        description.add_css_class("track-artist")
+        body.append(icon)
+        body.append(title)
+        body.append(description)
+        self._add_feature_page("system", "Widgets", body)
 
     def _build_settings_page(self):
         from linux_notch.ui.settings import SettingsPanel
 
-        panel = SettingsPanel(self.cfg, self.on_settings)
-        self._add_feature_page("settings", "Settings", panel)
+        self.settings_panel = SettingsPanel(self.cfg, self.on_settings)
+        self._add_feature_page("settings", "Settings", self.settings_panel)
 
     def _build_mochi_page(self):
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -747,164 +1445,89 @@ class Expanded(Gtk.Box):
         if self.on_content_changed is not None:
             self.on_content_changed()
 
-    def _build_spotify_page(self):
-        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        self.spotify_status = Gtk.Label(
-            label="", wrap=True, justify=Gtk.Justification.CENTER)
-        self.spotify_art = Gtk.Picture()
-        self.spotify_art.set_size_request(100, 100)
-        self.spotify_art.set_content_fit(Gtk.ContentFit.COVER)
-        self.spotify_art.set_halign(Gtk.Align.CENTER)
-        self.spotify_title = Gtk.Label(
-            label="Spotify", wrap=True, justify=Gtk.Justification.CENTER)
-        self.spotify_title.add_css_class("track-title")
-        self.spotify_artist = Gtk.Label(
-            label="", wrap=True, justify=Gtk.Justification.CENTER)
-        self.spotify_artist.add_css_class("track-artist")
-        self.spotify_progress = Gtk.ProgressBar()
-        self.spotify_progress.add_css_class("spotify-progress")
-
-        controls = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL, spacing=18)
-        controls.set_halign(Gtk.Align.CENTER)
-        self.spotify_prev = _media_btn("media-skip-backward-symbolic")
-        self.spotify_play = _media_btn(
-            "media-playback-start-symbolic", main=True)
-        self.spotify_next = _media_btn("media-skip-forward-symbolic")
-        self.spotify_prev.connect(
-            "clicked", lambda *_: self._spotify_control("previous_for"))
-        self.spotify_play.connect(
-            "clicked", lambda *_: self._spotify_control("play_pause_for"))
-        self.spotify_next.connect(
-            "clicked", lambda *_: self._spotify_control("next_for"))
-        controls.append(self.spotify_prev)
-        controls.append(self.spotify_play)
-        controls.append(self.spotify_next)
-
-        launch = Gtk.Button(label="Open Spotify")
-        launch.add_css_class("feature-btn")
-        launch.connect("clicked", self._open_spotify)
-        self.spotify_launch = launch
-
-        install = Gtk.Button(label="Get Spotify")
-        install.add_css_class("feature-btn")
-        install.connect("clicked", self._open_spotify_install_page)
-        self.spotify_install = install
-
-        body.append(self.spotify_art)
-        body.append(self.spotify_title)
-        body.append(self.spotify_artist)
-        body.append(self.spotify_progress)
-        body.append(self.spotify_status)
-        body.append(controls)
-        body.append(launch)
-        body.append(install)
-        self._add_feature_page("spotify", "Spotify", body)
-        if isinstance(self.media, MprisService):
-            self.media.connect("error", self._on_spotify_error)
-        self.refresh_spotify()
-
-    def _on_spotify_error(self, _service, message):
-        self.spotify_status.set_label(f"Spotify control failed: {message}")
-
-    def _spotify_player(self):
-        return getattr(self.media, "spotify_player", None)
-
-    def refresh_spotify(self):
-        if not hasattr(self, "spotify_status"):
+    def refresh_music(self):
+        if not hasattr(self, "music_status"):
             return
-        player = self._spotify_player()
+        player = self.media.active
+        row = self.music_list.get_first_child()
+        index = 0
+        while row is not None:
+            if not isinstance(row, Gtk.Button):
+                row = row.get_next_sibling()
+                continue
+            if index == getattr(self.media, "active_index", -1):
+                row.add_css_class("music-track-row-active")
+            else:
+                row.remove_css_class("music-track-row-active")
+            index += 1
+            row = row.get_next_sibling()
         if player is None:
-            self.spotify_art.set_paintable(None)
-            self.spotify_title.set_label("Spotify")
-            self.spotify_artist.set_label("")
-            self.spotify_progress.set_fraction(0)
-            self.spotify_prev.set_sensitive(False)
-            self.spotify_play.set_sensitive(False)
-            self.spotify_next.set_sensitive(False)
-            self.spotify_launch.set_visible(self.spotify_available)
-            self.spotify_install.set_visible(not self.spotify_available)
-            self.spotify_status.set_label(
-                "Spotify is installed but not running."
-                if self.spotify_available else "Spotify is not installed.")
+            error = getattr(self.media, "error_message", "")
+            self.music_status.set_label(
+                f"Music error: {error}" if error else "")
+            self.music_status.set_visible(bool(error))
+            self._set_music_artwork(None)
+            self.title.set_visible(False)
+            self.artist.set_visible(False)
+            self.album.set_visible(False)
+            self.seek.set_range(0, 1)
+            self.time_now.set_label("0:00")
+            self.time_total.set_label("0:00")
+            self.btn_prev.set_sensitive(False)
+            self.btn_play.set_sensitive(False)
+            self.btn_next.set_sensitive(False)
+            self.seek_box.set_sensitive(False)
+            self._sync_pos_timer()
+            self._resize_content()
             return
 
-        self.spotify_launch.set_visible(False)
-        self.spotify_install.set_visible(False)
-        self.spotify_status.set_label(
-            "Playing" if player.status == "Playing" else "Not playing")
-        self.spotify_title.set_label(player.title or "Unknown track")
-        self.spotify_artist.set_label(player.artist or "")
-        self.spotify_prev.set_sensitive(player.can_prev)
-        self.spotify_play.set_sensitive(True)
-        self.spotify_next.set_sensitive(player.can_next)
-        self.spotify_play.set_icon_name(
-            "media-playback-pause-symbolic"
-            if player.status == "Playing"
-            else "media-playback-start-symbolic")
+        self.seek_box.set_sensitive(True)
+        self.title.set_label(player.title or os.path.basename(player.path))
+        self.artist.set_label(player.artist)
+        self.album.set_label(player.album)
+        self.title.set_visible(True)
+        self.artist.set_visible(bool(player.artist))
+        self.album.set_visible(bool(player.album))
         if player.art_path and os.path.exists(player.art_path):
             try:
                 pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                    player.art_path, 100, 100, True)
-                self.spotify_art.set_paintable(
-                    Gdk.Texture.new_for_pixbuf(pixbuf))
+                    player.art_path, 144, 144, True)
+                self._set_music_artwork(Gdk.Texture.new_for_pixbuf(pixbuf))
             except GLib.Error as error:
-                logger.warning("Could not load Spotify album art: %s", error)
+                logger.warning("Could not load local album art: %s", error)
+                self._set_music_artwork(None)
         else:
-            self.spotify_art.set_paintable(None)
-        self._sync_spotify_timer()
+            self._set_music_artwork(None)
+        self.btn_play.set_icon_name(
+            "media-playback-pause-symbolic"
+            if player.status == "Playing"
+            else "media-playback-start-symbolic")
+        self.btn_prev.set_sensitive(player.can_prev)
+        self.btn_play.set_sensitive(True)
+        self.btn_next.set_sensitive(player.can_next)
+        duration = max(1, player.length_us)
+        self.seek.set_range(0, duration)
+        self.time_total.set_label(_fmt_us(player.length_us))
+        if player.status == "Playing":
+            self.music_status.set_label("Playing")
+            self.music_status.set_visible(True)
+        elif player.status == "Paused":
+            self.music_status.set_label("Paused")
+            self.music_status.set_visible(True)
+        elif getattr(self.media, "error_message", ""):
+            self.music_status.set_label(
+                f"Music error: {self.media.error_message}")
+            self.music_status.set_visible(True)
+        else:
+            self.music_status.set_label("")
+            self.music_status.set_visible(False)
+        self._sync_pos_timer()
+        self._poll_position()
+        self._resize_content()
 
-    def _spotify_control(self, method: str):
-        player = self._spotify_player()
-        callback = getattr(self.media, method, None)
-        if player is not None and callback is not None:
-            callback(SPOTIFY_BUS_NAME)
-
-    def _open_spotify(self, *_):
-        try:
-            if not Gio.AppInfo.launch_default_for_uri("spotify:", None):
-                self.spotify_status.set_label(
-                    "No application could open Spotify.")
-        except GLib.Error as error:
-            self.spotify_status.set_label(str(error))
-
-    def _open_spotify_install_page(self, *_):
-        try:
-            if not Gio.AppInfo.launch_default_for_uri(
-                    "https://flathub.org/apps/com.spotify.Client", None):
-                self.spotify_status.set_label(
-                    "No application could open the Flathub link.")
-        except GLib.Error as error:
-            self.spotify_status.set_label(str(error))
-
-    def _sync_spotify_timer(self):
-        player = self._spotify_player()
-        want = bool(
-            self.get_mapped()
-            and self.page_stack.get_visible_child_name() == "spotify"
-            and player is not None
-            and player.status == "Playing"
-        )
-        if want and not self._spotify_timer:
-            self._spotify_timer = GLib.timeout_add_seconds(
-                1, self._poll_spotify_position)
-        elif not want and self._spotify_timer:
-            GLib.source_remove(self._spotify_timer)
-            self._spotify_timer = 0
-
-    def _poll_spotify_position(self):
-        get_position = getattr(self.media, "get_position_for", None)
-        if get_position is None or self._spotify_player() is None:
-            self._spotify_timer = 0
-            return GLib.SOURCE_REMOVE
-        get_position(SPOTIFY_BUS_NAME, self._on_spotify_position)
-        return GLib.SOURCE_CONTINUE
-
-    def _on_spotify_position(self, position_us: int):
-        player = self._spotify_player()
-        if player is not None and player.length_us > 0:
-            self.spotify_progress.set_fraction(
-                min(1.0, position_us / player.length_us))
+    def _set_music_artwork(self, paintable):
+        self.art.set_paintable(paintable)
+        self.art_placeholder.set_visible(paintable is None)
 
     def _build_face_page(self):
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
@@ -1096,7 +1719,7 @@ class Expanded(Gtk.Box):
         self._refresh_face_status()
 
     def _build_home_page(self):
-        layout = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        layout = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         layout.set_hexpand(True)
         layout.set_vexpand(True)
 
@@ -1122,15 +1745,11 @@ class Expanded(Gtk.Box):
         character_card.append(character_button)
         character_card.append(self.home_status)
 
-        feature_card = Gtk.Box()
-        feature_card.add_css_class("home-card")
-        feature_card.add_css_class("home-feature-card")
-        feature_card.set_hexpand(True)
         grid = Gtk.Grid()
         grid.add_css_class("home-feature-grid")
         grid.set_column_homogeneous(True)
-        grid.set_column_spacing(6)
-        grid.set_row_spacing(6)
+        grid.set_column_spacing(8)
+        grid.set_row_spacing(8)
         grid.set_hexpand(True)
         grid.set_vexpand(True)
 
@@ -1143,13 +1762,12 @@ class Expanded(Gtk.Box):
             button = self._feature_button(feature)
             grid.attach(button, column, row, 1, 1)
             column += 1
-            if column == 2:
+            if column == HOME_FEATURE_COLUMNS:
                 column = 0
                 row += 1
 
-        feature_card.append(grid)
         layout.append(character_card)
-        layout.append(feature_card)
+        layout.append(grid)
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         page.add_css_class("home-layout")
         page.set_hexpand(True)
@@ -1179,43 +1797,8 @@ class Expanded(Gtk.Box):
     # -- refresh from services --------------------------------------------
 
     def refresh_media(self):
-        p = self.media.active
-        self.refresh_spotify()
+        self.refresh_music()
         self._refresh_home_status()
-        has = p is not None
-        self.player_box.set_visible(has)
-        self.idle_box.set_visible(not has)
-        if not has:
-            self._refresh_big_clock()
-            self._sync_pos_timer()
-            return
-        self.title.set_label(p.title or "Unknown track")
-        self.artist.set_label(p.artist or "")
-        self.album.set_label(p.album or "")
-        self.artist.set_visible(bool(p.artist))
-        self.album.set_visible(bool(p.album))
-        if p.art_path:
-            try:
-                # load at display size so the picture's natural size is 92px
-                # and never inflates the card
-                pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                    p.art_path, 92, 92, False)
-                self.art.set_paintable(Gdk.Texture.new_for_pixbuf(pb))
-            except GLib.Error:
-                self.art.set_paintable(None)
-        else:
-            self.art.set_paintable(None)
-        playing = p.status == "Playing"
-        self.btn_play.set_icon_name(
-            "media-playback-pause-symbolic" if playing
-            else "media-playback-start-symbolic")
-        self.btn_prev.set_sensitive(p.can_prev)
-        self.btn_next.set_sensitive(p.can_next)
-        total = p.length_us
-        self.seek.set_range(0, max(1, total))
-        self.time_total.set_label(_fmt_us(total))
-        self._sync_pos_timer()
-        self._poll_position()
 
     def refresh_battery(self):
         if not self.power.available:
@@ -1227,6 +1810,14 @@ class Expanded(Gtk.Box):
 
     def refresh_volume(self, percent: int, muted: bool = False):
         self.vol.set_value(percent)
+        self.inline_vol.set_value(percent)
+        self.inline_vol_value.set_label(f"{percent}%")
+        icon = (
+            "audio-volume-muted-symbolic"
+            if muted else "audio-volume-high-symbolic"
+        )
+        self.volume_button.set_icon_name(icon)
+        self.inline_volume_icon.set_from_icon_name(icon)
         if hasattr(self, "tg_mute") and self.tg_mute.get_active() != muted:
             self.tg_mute.handler_block_by_func(self._on_mute_toggle)
             self.tg_mute.set_active(muted)
@@ -1261,17 +1852,11 @@ class Expanded(Gtk.Box):
             self, icon.replace("-symbolic", ""), icon,
             "weather-few-clouds"))
 
-    def _on_system(self, _svc, cpu, ram, ram_gib):
-        self.sys_label.set_label(
-            f"CPU {cpu}%   ·   RAM {ram_gib:.1f} GiB ({ram}%)")
-
     # -- lifecycle ----------------------------------------------------------
 
     def _on_map(self):
         self.refresh_media()
-        self.refresh_spotify()
         self.refresh_battery()
-        self._refresh_big_clock()
         if self.weather is not None:
             self.weather.request()
         if self.system is not None:
@@ -1281,9 +1866,6 @@ class Expanded(Gtk.Box):
         if self._pos_timer:
             GLib.source_remove(self._pos_timer)
             self._pos_timer = 0
-        if self._spotify_timer:
-            GLib.source_remove(self._spotify_timer)
-            self._spotify_timer = 0
         if self.system is not None:
             self.system.stop()
         if hasattr(self, "face_client"):
@@ -1293,7 +1875,11 @@ class Expanded(Gtk.Box):
 
     def _sync_pos_timer(self):
         playing = self.media.active and self.media.active.status == "Playing"
-        want = bool(playing) and self.get_mapped()
+        want = bool(
+            playing
+            and self.get_mapped()
+            and self.page_stack.get_visible_child_name() == "music"
+        )
         if want and not self._pos_timer:
             self._pos_timer = GLib.timeout_add_seconds(1, self._poll_position)
         elif not want and self._pos_timer:
@@ -1315,17 +1901,15 @@ class Expanded(Gtk.Box):
         self.media.seek_to(int(self.seek.get_value()))
 
     def _on_vol_set(self, scale, scroll, value):
+        value = max(0, min(100, value))
+        self.vol.set_value(value)
+        self.inline_vol.set_value(value)
+        self.inline_vol_value.set_label(f"{int(value)}%")
         Gio.Subprocess.new(
             ["pactl", "set-sink-volume", "@DEFAULT_SINK@",
-             f"{int(max(0, min(100, value)))}%"],
+             f"{int(value)}%"],
             Gio.SubprocessFlags.NONE)
         return False
-
-    def _refresh_big_clock(self):
-        fmt = "%H:%M" if self.cfg.get("clock_24h", True) else "%I:%M %p"
-        self.big_clock.set_label(time.strftime(fmt))
-        self.big_date.set_label(time.strftime("%A %d %B"))
-
 
 def _label(css: str, width: int) -> Gtk.Label:
     lbl = Gtk.Label(xalign=0)

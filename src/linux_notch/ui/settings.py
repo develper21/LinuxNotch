@@ -2,38 +2,48 @@
 
 from __future__ import annotations
 
+import os
+
 from gi.repository import Adw, Gdk, Gtk
 
 from linux_notch import config
 from linux_notch.services.sounds import SOUND_NAMES, play_sound
 
 MODULES = [
-    ("music", "Music", "MPRIS players: full controls and album art"),
+    ("music", "Music", "Play local audio files from your music folder"),
     ("volume_osd", "Volume OSD", "Peek on volume changes"),
     ("battery", "Battery", "Charge ring and plug/unplug peeks"),
     ("notifications", "Notifications", "Mirror notifications as peeks"),
     ("network", "Network", "Connectivity chip and peeks"),
     ("bluetooth", "Bluetooth", "Connected device chip and peeks"),
     ("weather", "Weather", "Weather tile in the expanded card"),
-    ("system", "System stats", "CPU and RAM readout while expanded"),
+    ("system", "Widgets", "Add desktop widgets in a future update"),
     ("toggles", "Quick toggles", "Mute, mic, caffeine, screenshot"),
     ("claude_usage", "Claude usage (opt-in)",
      "Reads Claude Code credentials to fetch usage from Anthropic"),
     ("clipboard", "Clipboard history",
      "Local-only clipboard history; recording is paused by default"),
-    ("spotify", "Spotify", "Spotify controls through MPRIS over D-Bus"),
     ("todos", "ToDo list", "Create and track your local tasks"),
     ("face", "Face unlock", "Local face authentication for lock screen"),
+    ("terminal", "Terminal", "Embedded VTE shell; starts on first use"),
 ]
+VISUALIZER_MODES = ("auto", "real", "synthetic")
+VISUALIZER_LABELS = (
+    "Auto (real audio with synthetic fallback)",
+    "Real audio sync (beta)",
+    "Synthetic only",
+)
 
 
 class SettingsPanel(Gtk.Box):
     def __init__(self, cfg: dict, on_apply):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.add_css_class("settings-panel")
         self.cfg = cfg
         self.on_apply = on_apply
 
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        content.add_css_class("settings-content")
         content.append(self._island_page())
         content.append(self._modules_page())
         scroll = Gtk.ScrolledWindow()
@@ -66,20 +76,22 @@ class SettingsPanel(Gtk.Box):
     # -- pages -------------------------------------------------------------
 
     def _island_page(self):
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        page.add_css_class("settings-page")
 
         pos = Adw.PreferencesGroup(title="Position")
+        pos.add_css_class("settings-group")
         pos.add(self._switch(
             "Sit on top of panels",
             "Overlap the bar at the screen edge instead of sitting below it",
             "overlap_panel"))
 
-        margin = Adw.SpinRow.new_with_range(0, 80, 1)
-        margin.set_title("Top margin")
-        margin.set_subtitle("Distance from the screen edge, px")
-        margin.set_value(self.cfg["margin_top"])
+        margin = Adw.SpinRow.new_with_range(-40, 80, 1)
+        margin.set_title("Bottom margin")
+        margin.set_subtitle("Negative values move the notch closer to the edge")
+        margin.set_value(self.cfg["margin_bottom"])
         margin.connect("notify::value", lambda r, _p: (
-            self.cfg.__setitem__("margin_top", int(r.get_value())),
+            self.cfg.__setitem__("margin_bottom", int(r.get_value())),
             self._apply()))
         pos.add(margin)
 
@@ -116,6 +128,7 @@ class SettingsPanel(Gtk.Box):
         page.append(pos)
 
         look = Adw.PreferencesGroup(title="Look")
+        look.add_css_class("settings-group")
         opacity = Adw.SpinRow.new_with_range(30, 100, 5)
         opacity.set_title("Opacity")
         opacity.set_subtitle("Island background transparency, %")
@@ -145,6 +158,7 @@ class SettingsPanel(Gtk.Box):
         mochi = Adw.PreferencesGroup(
             title="Mochi",
             description="Configure Mochi's sound effects")
+        mochi.add_css_class("settings-group")
 
         mochi.add(self._switch(
             "Sound effects",
@@ -177,6 +191,7 @@ class SettingsPanel(Gtk.Box):
         page.append(mochi)
 
         behavior = Adw.PreferencesGroup(title="Behavior")
+        behavior.add_css_class("settings-group")
         peek = Adw.SpinRow.new_with_range(0.8, 6.0, 0.2)
         peek.set_digits(1)
         peek.set_title("Peek duration")
@@ -187,26 +202,147 @@ class SettingsPanel(Gtk.Box):
             self._apply()))
         behavior.add(peek)
         page.append(behavior)
+
+        visualizer = Adw.PreferencesGroup(
+            title="Closed-notch visualizer",
+            description=(
+                "Real sync listens to the default output monitor while local "
+                "music plays. It never uses the microphone or saves audio."
+            ),
+        )
+        visualizer.add_css_class("settings-group")
+        mode = Adw.ComboRow(title="Visualizer mode")
+        mode.set_model(Gtk.StringList.new(list(VISUALIZER_LABELS)))
+        selected_mode = self.cfg.get("viz_mode", "auto")
+        if selected_mode not in VISUALIZER_MODES:
+            selected_mode = "auto"
+        mode.set_selected(VISUALIZER_MODES.index(selected_mode))
+
+        def on_mode_changed(row, _property):
+            self.cfg["viz_mode"] = VISUALIZER_MODES[row.get_selected()]
+            self._apply()
+
+        mode.connect("notify::selected", on_mode_changed)
+        visualizer.add(mode)
+        status_row = Adw.ActionRow(title="Real audio status")
+        self.visualizer_status = Gtk.Label(
+            label="Waiting for local music playback",
+            xalign=1,
+            wrap=True,
+        )
+        self.visualizer_status.add_css_class("tile-sub")
+        self.visualizer_status.set_max_width_chars(32)
+        status_row.add_suffix(self.visualizer_status)
+        visualizer.add(status_row)
+        page.append(visualizer)
         return page
 
     def _modules_page(self):
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        page.add_css_class("settings-page")
+        music = Adw.PreferencesGroup(
+            title="Music",
+            description="Choose the folder containing your local audio files",
+        )
+        music.add_css_class("settings-group")
+        music_row = Adw.ActionRow(
+            title="Music folder",
+            subtitle="Audio files in this folder and its subfolders",
+        )
+        self.music_directory_entry = Gtk.Entry()
+        self.music_directory_entry.set_text(
+            os.path.expanduser(self.cfg.get("music_directory", "~/Music")))
+        self.music_directory_entry.set_placeholder_text("~/Music")
+        self.music_directory_entry.set_width_chars(22)
+        self.music_directory_entry.set_hexpand(True)
+        self.music_directory_entry.set_valign(Gtk.Align.CENTER)
+        self.music_directory_entry.connect(
+            "activate", self._apply_music_directory)
+        music_row.add_suffix(self.music_directory_entry)
+        browse_music = Gtk.Button(label="Browse")
+        browse_music.set_valign(Gtk.Align.CENTER)
+        browse_music.connect("clicked", self._browse_music_directory)
+        music_row.add_suffix(browse_music)
+        save_music = Gtk.Button(label="Save")
+        save_music.set_valign(Gtk.Align.CENTER)
+        save_music.connect("clicked", self._apply_music_directory)
+        music_row.add_suffix(save_music)
+        music.add(music_row)
+        self.music_directory_status = Gtk.Label(
+            label="", xalign=0, wrap=True)
+        self.music_directory_status.add_css_class("tile-sub")
+        self.music_directory_status.set_margin_start(12)
+        self.music_directory_status.set_margin_end(12)
+        music.add(self.music_directory_status)
+        page.append(music)
+
         group = Adw.PreferencesGroup(
             title="Modules",
             description="Turning a module off removes its widgets, peeks "
                         "and background listeners entirely")
+        group.add_css_class("settings-group")
+        group.add_css_class("settings-modules")
         for key, title, subtitle in MODULES:
             group.add(self._switch(title, subtitle, key,
                                    structural=True, mod=True))
         page.append(group)
 
         weather = Adw.PreferencesGroup(title="Weather")
-        city = Adw.EntryRow(title="Location (empty = automatic)")
-        city.set_text(self.cfg["weather_city"])
-        city.connect("apply", lambda r: (
-            self.cfg.__setitem__("weather_city", r.get_text().strip()),
-            self._apply(structural=True)))
-        city.set_show_apply_button(True)
-        weather.add(city)
+        weather.add_css_class("settings-group")
+        city_row = Adw.ActionRow(
+            title="Location",
+            subtitle="Enter a city name, or leave empty for automatic",
+        )
+        self.weather_city_entry = Gtk.Entry()
+        self.weather_city_entry.set_text(self.cfg["weather_city"])
+        self.weather_city_entry.set_placeholder_text("City name")
+        self.weather_city_entry.set_width_chars(16)
+        self.weather_city_entry.set_hexpand(True)
+        self.weather_city_entry.set_valign(Gtk.Align.CENTER)
+        self.weather_city_entry.set_focusable(True)
+        self.weather_city_entry.connect("activate", self._apply_weather_city)
+        city_row.add_suffix(self.weather_city_entry)
+        apply_city = Gtk.Button(label="Save")
+        apply_city.set_valign(Gtk.Align.CENTER)
+        apply_city.connect("clicked", self._apply_weather_city)
+        city_row.add_suffix(apply_city)
+        weather.add(city_row)
         page.append(weather)
         return page
+
+    def _browse_music_directory(self, *_):
+        chooser = Gtk.FileChooserNative.new(
+            "Choose Music Folder",
+            None,
+            Gtk.FileChooserAction.SELECT_FOLDER,
+            "Select",
+            "Cancel",
+        )
+        chooser.connect("response", self._on_music_directory_selected)
+        chooser.show()
+
+    def _on_music_directory_selected(self, chooser, response):
+        if response == Gtk.ResponseType.ACCEPT:
+            selected = chooser.get_file()
+            if selected is not None and selected.get_path():
+                self.music_directory_entry.set_text(selected.get_path())
+        chooser.destroy()
+
+    def _apply_music_directory(self, *_):
+        directory = os.path.abspath(
+            os.path.expanduser(self.music_directory_entry.get_text().strip())
+        )
+        if not os.path.isdir(directory):
+            self.music_directory_status.set_label(
+                f"Folder not found: {directory}")
+            return
+        self.cfg["music_directory"] = directory
+        self.music_directory_status.set_label("Music folder saved.")
+        self._apply(structural=True)
+
+    def _apply_weather_city(self, *_):
+        self.cfg["weather_city"] = self.weather_city_entry.get_text().strip()
+        self._apply(structural=True)
+
+    def set_visualizer_status(self, message: str) -> None:
+        self.visualizer_status.set_label(message)

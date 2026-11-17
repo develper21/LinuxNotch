@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from linux_notch.desktop.factory import choose_backend
+from linux_notch.desktop.backend import bottom_center_position
 from linux_notch.desktop.floating import FloatingWindowBackend
 
 
@@ -12,7 +13,13 @@ class BackendSelectionTests(unittest.TestCase):
             {"XDG_SESSION_TYPE": "wayland", "XDG_CURRENT_DESKTOP": "River"}
         )
         self.assertIsInstance(backend, FloatingWindowBackend)
-        self.assertFalse(backend.probe().anchor_top_center)
+        self.assertFalse(backend.probe().anchor_bottom_center)
+
+    def test_bottom_center_position_accounts_for_monitor_origin_and_margin(self):
+        self.assertEqual(
+            bottom_center_position(100, 50, 1920, 1080, 400, 80, 20),
+            (860, 1030),
+        )
 
     @patch("linux_notch.desktop.x11.X11Backend.usable", return_value=False)
     def test_unavailable_x11_backend_uses_floating_fallback(self, _probe):

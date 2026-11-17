@@ -1,4 +1,4 @@
-"""The top-attached island surface and its closed, peek, and open states."""
+"""The bottom-attached island surface and its closed, peek, and open states."""
 
 from __future__ import annotations
 
@@ -16,13 +16,13 @@ from linux_notch.ui.shape import IslandShape, ShapeGeometry
 CLOSED: ShapeGeometry = {
     "width": 260,
     "height": 34,
-    "radius": 12,
+    "radius": 10,
     "ear": 10,
 }
 PEEK: ShapeGeometry = {
     "width": 300,
     "height": 40,
-    "radius": 14,
+    "radius": 12,
     "ear": 12,
 }
 COLLAPSE_DELAY_MS = 700
@@ -68,11 +68,12 @@ def _find_monitor(monitors, wanted: str):
 
 class Island(Gtk.Overlay):
     def __init__(self, cfg: dict, media, power, weather=None, system=None,
-                 on_settings=None, clipboard=None):
+                 on_settings=None, clipboard=None, on_terminal_focus=None,
+                 mail_service=None):
         super().__init__()
         self.add_css_class("island")
         self.set_halign(Gtk.Align.CENTER)
-        self.set_valign(Gtk.Align.START)
+        self.set_valign(Gtk.Align.END)
         self.set_overflow(Gtk.Overflow.HIDDEN)
         self.cfg = cfg
         self.media = media
@@ -105,7 +106,14 @@ class Island(Gtk.Overlay):
         self.set_measure_overlay(self.stack, False)
         self._set_content_inset(10, CLOSED["height"])
 
-        self.pill = Pill(cfg)
+        self.pill = Pill(
+            cfg,
+            power,
+            media,
+            weather=weather,
+            system=system,
+            on_visualizer_status=self._on_visualizer_status,
+        )
         self.peek = Peek()
         self.expanded = Expanded(
             cfg,
@@ -118,12 +126,20 @@ class Island(Gtk.Overlay):
             on_mochi_changed=self.pill.mochi.outfit_changed,
             on_content_changed=self._schedule_content_resize,
             on_close=self.collapse,
+            on_terminal_focus=on_terminal_focus,
+            mail_service=mail_service,
         )
 
         self.stack.add_named(self.pill, "pill")
         self.stack.add_named(self.peek, "peek")
         self.stack.add_named(self.expanded, "expanded")
         self.stack.set_visible_child_name("pill")
+        self._on_visualizer_status(self.pill.visualizer_status)
+        self.stack.connect(
+            "notify::visible-child-name",
+            lambda *_: self.pill.set_surface_visible(self.state == "pill"),
+        )
+        self.pill.set_surface_visible(True)
         self.pill.launcher.connect("clicked", lambda *_: self.expand())
 
         click = Gtk.GestureClick()
@@ -131,7 +147,7 @@ class Island(Gtk.Overlay):
         self.add_controller(click)
 
         right = Gtk.GestureClick(button=3)
-        right.connect("released", lambda *_: self.toggle())
+        right.connect("released", self._on_right_click)
         self.add_controller(right)
 
         motion = Gtk.EventControllerMotion()
@@ -350,10 +366,25 @@ class Island(Gtk.Overlay):
         surface.set_input_region(region)
 
     def _on_click(self, _gesture, _n, _x, _y) -> None:
+        if (
+            self.state == "expanded"
+            and self.expanded.page_stack.get_visible_child_name()
+            in self.expanded.KEEP_OPEN_PAGES
+        ):
+            return
         if self.state in ("pill", "peek"):
             self.expand()
         else:
             self.collapse()
+
+    def _on_right_click(self, *_args) -> None:
+        if (
+            self.state == "expanded"
+            and self.expanded.page_stack.get_visible_child_name()
+            in self.expanded.KEEP_OPEN_PAGES
+        ):
+            return
+        self.toggle()
 
     def _on_enter(self, _motion, _x, _y) -> None:
         self._hovered = True
@@ -366,6 +397,14 @@ class Island(Gtk.Overlay):
     def _on_leave(self, _motion) -> None:
         self._hovered = False
         if self.state == "expanded":
+            if (
+                self.expanded.page_stack.get_visible_child_name()
+                in self.expanded.KEEP_OPEN_PAGES
+            ):
+                if self._collapse_timeout:
+                    GLib.source_remove(self._collapse_timeout)
+                    self._collapse_timeout = 0
+                return
             if self._collapse_timeout:
                 GLib.source_remove(self._collapse_timeout)
             self._collapse_timeout = GLib.timeout_add(
@@ -375,12 +414,26 @@ class Island(Gtk.Overlay):
 
     def _leave_collapse(self) -> bool:
         self._collapse_timeout = 0
-        if self.state == "expanded" and not self._hovered:
+        if (
+            self.state == "expanded"
+            and not self._hovered
+            and self.expanded.page_stack.get_visible_child_name()
+            not in self.expanded.KEEP_OPEN_PAGES
+        ):
             self.collapse()
         return GLib.SOURCE_REMOVE
 
     def show_activity(self, activity: dict | None) -> None:
         self.expanded.show_activity(activity)
+
+    def _on_visualizer_status(self, message: str) -> None:
+        settings = getattr(
+            getattr(self, "expanded", None), "settings_panel", None)
+        if settings is not None:
+            settings.set_visualizer_status(message)
+
+    def stop_visualizer(self) -> None:
+        self.pill.stop_visualizer()
 
     def set_opacity(self, opacity: float) -> None:
         self.shape.set_opacity(min(1.0, max(0.3, opacity)))

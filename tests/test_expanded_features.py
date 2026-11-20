@@ -5,6 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import cairo
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -35,6 +36,8 @@ class ExpandedFeatureLayoutTests(unittest.TestCase):
         self.assertIn("face", HOME_FEATURES)
         self.assertIn("terminal", feature_ids)
         self.assertIn("terminal", HOME_FEATURES)
+        self.assertIn("screen_time", feature_ids)
+        self.assertIn("screen_time", HOME_FEATURES)
 
     def test_music_page_replaces_spotify_in_feature_shortcuts(self):
         feature_ids = {feature[0] for feature in FEATURES}
@@ -294,6 +297,123 @@ class ExpandedFeatureLayoutTests(unittest.TestCase):
         self.assertNotIn("mail_password", cfg)
         self.assertEqual(expanded.mail_password_entry.get_text(), "")
         save.assert_called_once_with(cfg)
+
+    def test_screen_time_page_shows_week_chart_and_navigation(self):
+        if not Gtk.init_check():
+            self.skipTest("GTK display unavailable")
+
+        class FakeMedia:
+            active = None
+            active_index = -1
+            tracks = []
+            directory = ""
+            error_message = ""
+
+            def connect(self, *_args):
+                return None
+
+            def get_position(self, _callback):
+                return None
+
+            def previous(self):
+                return None
+
+            def play_pause(self):
+                return None
+
+            def next(self):
+                return None
+
+            def seek_to(self, _position):
+                return None
+
+        cfg = copy.deepcopy(config.DEFAULTS)
+        cfg["modules"].update({
+            "clipboard": False,
+            "todos": False,
+            "face": False,
+            "terminal": False,
+        })
+        expanded = Expanded(cfg, FakeMedia(), None)
+        expanded.show_page("screen_time")
+
+        self.assertIn("screen_time", expanded.pages)
+        self.assertEqual(expanded.screen_time_page.week_offset, 0)
+        self.assertEqual(len(expanded.screen_time_page.chart.days), 7)
+        chart_surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 480, 210)
+        expanded.screen_time_page.chart._draw(
+            expanded.screen_time_page.chart,
+            cairo.Context(chart_surface),
+            480,
+            210,
+        )
+        chart_surface.flush()
+        self.assertTrue(any(chart_surface.get_data()))
+        self.assertFalse(expanded.screen_time_page.next_button.get_sensitive())
+        expanded.screen_time_page.change_week(-1)
+        self.assertTrue(expanded.screen_time_page.next_button.get_sensitive())
+        expanded.screen_time_page.change_week(1)
+        self.assertEqual(expanded.screen_time_page.week_offset, 0)
+
+    def test_stopwatch_starts_pauses_resumes_and_resets(self):
+        if not Gtk.init_check():
+            self.skipTest("GTK display unavailable")
+
+        class FakeMedia:
+            active = None
+            active_index = -1
+            tracks = []
+            directory = ""
+            error_message = ""
+
+            def connect(self, *_args):
+                return None
+
+            def get_position(self, _callback):
+                return None
+
+            def previous(self):
+                return None
+
+            def play_pause(self):
+                return None
+
+            def next(self):
+                return None
+
+            def seek_to(self, _position):
+                return None
+
+        cfg = copy.deepcopy(config.DEFAULTS)
+        cfg["modules"].update({
+            "clipboard": False,
+            "todos": False,
+            "face": False,
+            "terminal": False,
+        })
+        expanded = Expanded(cfg, FakeMedia(), None)
+
+        expanded.stopwatch_start_button.emit("clicked")
+        self.assertNotEqual(expanded._stopwatch_timer, 0)
+        self.assertEqual(expanded._format_stopwatch(), "00:00:00")
+        self.assertEqual(
+            expanded.stopwatch_action_button.get_icon_name(),
+            "media-playback-stop-symbolic",
+        )
+        expanded.stopwatch_action_button.emit("clicked")
+        self.assertEqual(
+            expanded.stopwatch_action_button.get_icon_name(),
+            "media-playback-start-symbolic",
+        )
+        self.assertTrue(expanded.stopwatch_action_button.has_css_class(
+            "stopwatch-play-button"))
+        self.assertEqual(expanded._stopwatch_timer, 0)
+        expanded.stopwatch_action_button.emit("clicked")
+        self.assertNotEqual(expanded._stopwatch_timer, 0)
+        expanded.stopwatch_reset_button.emit("clicked")
+        self.assertEqual(expanded._stopwatch_timer, 0)
+        self.assertTrue(expanded.stopwatch_start_button.get_visible())
+        self.assertFalse(expanded.stopwatch_value.get_visible())
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
 from linux_notch.services.sounds import play_sound  # noqa: E402
+from linux_notch.ui.theme import CHARACTER as _CHARACTER_HEX, rgb  # noqa: E402
 
 MOODS = {
     "idle", "working", "thinking", "searching", "approval", "question",
@@ -35,7 +36,7 @@ OUTFITS = (
 )
 
 _MOOD_COLORS = {
-    "idle": (0.93, 0.94, 0.96),
+    "idle": rgb(_CHARACTER_HEX),
     "working": (0.60, 0.79, 1.0),
     "thinking": (0.78, 0.68, 1.0),
     "searching": (0.69, 0.72, 1.0),

@@ -16,12 +16,14 @@ window.island-window decoration {
   margin: 0;
 }
 
+/* Palette definitions are injected by ui.theme for the selected theme. */
+
 .island {
   background: transparent;
   border: none;
   border-radius: 0;
   box-shadow: none;
-  color: #f2f2f4;
+  color: @notch_text;
 }
 
 .pill {
@@ -34,14 +36,14 @@ window.island-window decoration {
   min-width: 30px;
   min-height: 30px;
   padding: 0;
-  color: #f2f2f4;
+  color: @notch_text;
   background: transparent;
   border: none;
   border-radius: 99px;
 }
 
 .launcher-button:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: @notch_pill;
 }
 
 .island scrollbar {
@@ -61,7 +63,7 @@ window.island-window decoration {
 
 .peek-body {
   font-size: 12px;
-  color: rgba(242, 242, 244, 0.65);
+  color: @notch_muted;
 }
 
 .peek-icon {
@@ -77,7 +79,7 @@ window.island-window decoration {
 }
 
 .peek levelbar block.filled {
-  background: #ffffff;
+  background: @notch_text;
   border: none;
   border-radius: 99px;
   min-height: 6px;
@@ -93,15 +95,15 @@ window.island-window decoration {
   min-width: 30px;
   min-height: 30px;
   padding: 0 7px;
-  color: rgba(242, 242, 244, 0.78);
+  color: @notch_muted;
   background: transparent;
   border: none;
   border-radius: 99px;
 }
 
 .tab-btn:hover {
-  color: #f2f2f4;
-  background: rgba(255, 255, 255, 0.10);
+  color: @notch_text;
+  background: @notch_pill;
 }
 
 .home-layout {
@@ -109,8 +111,8 @@ window.island-window decoration {
 }
 
 .home-card {
-  background: #121212;
-  border: 1px solid #202024;
+  background: @notch_card;
+  border: 1px solid @notch_border;
   border-radius: 20px;
   padding: 12px;
 }
@@ -132,7 +134,7 @@ window.island-window decoration {
 }
 
 .home-status {
-  color: rgba(242, 242, 244, 0.66);
+  color: @notch_muted;
   font-size: 11px;
 }
 
@@ -148,19 +150,19 @@ window.island-window decoration {
   min-width: 76px;
   min-height: 64px;
   padding: 6px 4px;
-  color: #f2f2f4;
-  background: #1a1a1a;
-  border: 1px solid #262626;
+  color: @notch_text;
+  background: @notch_card;
+  border: 1px solid @notch_border;
   border-radius: 14px;
 }
 
 .home-feature-btn:hover {
-  background: #222222;
+  background: @notch_pill;
 }
 
 .pill-status {
   min-width: 100px;
-  color: rgba(242, 242, 244, 0.78);
+  color: @notch_text;
   font-size: 10px;
   font-weight: 600;
   font-feature-settings: "tnum";
@@ -168,8 +170,8 @@ window.island-window decoration {
 
 .volume-inline-panel {
   padding: 7px 10px;
-  background: #1a1a1a;
-  border: 1px solid #2a2a2d;
+  background: @notch_card;
+  border: 1px solid @notch_border;
   border-radius: 12px;
 }
 
@@ -191,21 +193,21 @@ window.island-window decoration {
 }
 
 .feature-btn {
-  background: rgba(255, 255, 255, 0.07);
+  background: @notch_card;
   border: none;
   border-radius: 18px;
   min-width: 104px;
   padding: 8px 10px;
-  color: #f2f2f4;
+  color: @notch_text;
   -gtk-icon-size: 22px;
 }
 
 .feature-btn:hover {
-  background: rgba(255, 255, 255, 0.13);
+  background: @notch_pill;
 }
 
 .feature-btn:active {
-  background: rgba(255, 255, 255, 0.18);
+  background: @notch_pill;
 }
 
 .mochi-outfit-selected {
@@ -215,6 +217,22 @@ window.island-window decoration {
 .feature-btn-label {
   font-size: 11px;
   font-weight: 600;
+}
+
+.feature-icon-music {
+  color: @notch_music;
+}
+
+.feature-icon-mail {
+  color: @notch_mail;
+}
+
+.feature-icon-terminal {
+  color: @notch_terminal;
+}
+
+.feature-icon-widgets {
+  color: @notch_widgets;
 }
 
 .feature-title {
@@ -267,14 +285,14 @@ window.island-window decoration {
   border-radius: 99px;
   min-height: 26px;
   padding: 0 10px;
-  color: rgba(242, 242, 244, 0.70);
+  color: @notch_muted;
   font-size: 11px;
   font-weight: 600;
 }
 
 .clipboard-clear-btn:hover {
-  background: rgba(255, 255, 255, 0.14);
-  color: #f2f2f4;
+  background: @notch_pill;
+  color: @notch_text;
 }
 
 .todo-list {
@@ -286,7 +304,7 @@ window.island-window decoration {
 }
 
 .todo-completed {
-  color: rgba(242, 242, 244, 0.48);
+  color: @notch_muted;
 }
 
 .todo-add-btn,
@@ -297,14 +315,14 @@ window.island-window decoration {
   min-width: 30px;
   min-height: 30px;
   padding: 0;
-  color: rgba(242, 242, 244, 0.72);
+  color: @notch_muted;
   -gtk-icon-size: 14px;
 }
 
 .todo-add-btn:hover,
 .todo-delete-btn:hover {
-  background: rgba(255, 255, 255, 0.14);
-  color: #f2f2f4;
+  background: @notch_pill;
+  color: @notch_text;
 }
 
 .todo-delete-btn {
@@ -319,8 +337,8 @@ window.island-window decoration {
 .terminal-page {
   min-width: 640px;
   min-height: 320px;
-  background: #101114;
-  border: 1px solid #191a1d;
+  background: @notch_card;
+  border: 1px solid @notch_border;
   border-radius: 16px;
 }
 
@@ -329,7 +347,7 @@ window.island-window decoration {
 }
 
 .terminal-unavailable {
-  color: rgba(242, 242, 244, 0.78);
+  color: @notch_text;
   font-size: 13px;
 }
 
@@ -349,14 +367,14 @@ window.island-window decoration {
 
 .music-track-row {
   padding: 7px 10px;
-  color: #f2f2f4;
+  color: @notch_text;
   background: rgba(255, 255, 255, 0.045);
   border: none;
   border-radius: 10px;
 }
 
 .music-track-row:hover {
-  background: rgba(255, 255, 255, 0.11);
+  background: @notch_pill;
 }
 
 .music-track-row-active,
@@ -373,8 +391,8 @@ window.island-window decoration {
 .music-preview {
   min-width: 240px;
   padding: 8px;
-  background: rgba(255, 255, 255, 0.035);
-  border: 1px solid rgba(255, 255, 255, 0.055);
+  background: @notch_card;
+  border: 1px solid @notch_border;
   border-radius: 16px;
 }
 
@@ -385,10 +403,11 @@ window.island-window decoration {
 .music-track-title {
   font-size: 12px;
   font-weight: 600;
+  color: @notch_text;
 }
 
 .music-track-subtitle {
-  color: rgba(242, 242, 244, 0.52);
+  color: @notch_muted;
   font-size: 10px;
 }
 
@@ -402,7 +421,7 @@ window.island-window decoration {
 }
 
 .music-art-placeholder {
-  color: rgba(242, 242, 244, 0.5);
+  color: @notch_muted;
 }
 
 .track-title {
@@ -412,18 +431,18 @@ window.island-window decoration {
 
 .track-artist {
   font-size: 13px;
-  color: rgba(242, 242, 244, 0.70);
+  color: @notch_muted;
 }
 
 .track-album {
   font-size: 11px;
-  color: rgba(242, 242, 244, 0.45);
+  color: @notch_muted;
 }
 
 .seek-time {
   font-size: 10px;
   font-weight: 600;
-  color: rgba(242, 242, 244, 0.55);
+  color: @notch_muted;
   font-feature-settings: "tnum";
 }
 
@@ -445,7 +464,7 @@ scale.seek highlight {
 }
 
 scale.seek slider {
-  background: #ffffff;
+  background: @notch_text;
   border: none;
   border-radius: 99px;
   min-width: 12px;
@@ -460,7 +479,7 @@ scale.seek slider {
   border-radius: 99px;
   min-width: 38px;
   min-height: 38px;
-  color: #f2f2f4;
+  color: @notch_text;
   -gtk-icon-size: 18px;
 }
 
@@ -473,7 +492,7 @@ scale.seek slider {
 }
 
 .media-btn--main {
-  background: rgba(255, 255, 255, 0.10);
+  background: @notch_pill;
   min-width: 52px;
   min-height: 52px;
   -gtk-icon-size: 24px;
@@ -486,7 +505,7 @@ scale.seek slider {
 /* ---- tiles ---- */
 
 .tile {
-  background: rgba(255, 255, 255, 0.06);
+  background: @notch_card;
   border-radius: 18px;
   padding: 12px;
   min-width: 76px;
@@ -500,7 +519,7 @@ scale.seek slider {
 
 .tile-sub {
   font-size: 10px;
-  color: rgba(242, 242, 244, 0.55);
+  color: @notch_muted;
 }
 
 .tile-btn {
@@ -510,7 +529,7 @@ scale.seek slider {
   min-height: 22px;
   min-width: 22px;
   padding: 0;
-  color: #f2f2f4;
+  color: @notch_text;
   -gtk-icon-size: 11px;
 }
 
@@ -531,13 +550,13 @@ scale.vol trough {
 }
 
 scale.vol highlight {
-  background: #ffffff;
+  background: @notch_text;
   border: none;
   border-radius: 99px;
 }
 
 scale.vol slider {
-  background: #ffffff;
+  background: @notch_text;
   border: none;
   border-radius: 99px;
   min-width: 10px;
@@ -548,7 +567,7 @@ scale.vol slider {
 .net-chip {
   font-size: 11px;
   font-weight: 600;
-  color: rgba(242, 242, 244, 0.60);
+  color: @notch_muted;
 }
 
 /* ---- header chips + quick toggles ---- */
@@ -557,7 +576,7 @@ scale.vol slider {
   background: rgba(255, 255, 255, 0.06);
   border-radius: 99px;
   padding: 3px 10px;
-  color: rgba(242, 242, 244, 0.70);
+  color: @notch_muted;
 }
 
 .chip-btn {
@@ -567,13 +586,13 @@ scale.vol slider {
   min-width: 26px;
   min-height: 26px;
   padding: 0;
-  color: rgba(242, 242, 244, 0.70);
+  color: @notch_muted;
   -gtk-icon-size: 13px;
 }
 
 .chip-btn:hover {
-  background: rgba(255, 255, 255, 0.14);
-  color: #f2f2f4;
+  background: @notch_pill;
+  color: @notch_text;
 }
 
 .toggle-btn {
@@ -582,7 +601,7 @@ scale.vol slider {
   border-radius: 99px;
   min-width: 44px;
   min-height: 44px;
-  color: #f2f2f4;
+  color: @notch_text;
   -gtk-icon-size: 17px;
 }
 
@@ -598,7 +617,7 @@ scale.vol slider {
 .sys-stats {
   font-size: 11px;
   font-weight: 600;
-  color: rgba(242, 242, 244, 0.45);
+  color: @notch_muted;
   font-feature-settings: "tnum";
 }
 
@@ -613,7 +632,7 @@ scale.vol slider {
 .face-status-badge {
   font-weight: 700;
   font-size: 14px;
-  color: #f2f2f4;
+  color: @notch_text;
 }
 
 .face-ctrl-box {
@@ -648,8 +667,8 @@ scale.vol slider {
   min-width: 38px;
   min-height: 38px;
   padding: 0;
-  color: #111114;
-  background: @accent;
+  color: @notch_text;
+  background: @notch_mail;
   border: none;
   border-radius: 99px;
   font-weight: 800;
@@ -677,7 +696,7 @@ scale.vol slider {
 .mail-message-row {
   min-height: 54px;
   padding: 7px 10px;
-  color: #f2f2f4;
+  color: @notch_text;
   background: transparent;
   border: none;
   border-bottom: 1px solid rgba(255, 255, 255, 0.09);
@@ -703,7 +722,7 @@ scale.vol slider {
 
 .mail-date {
   font-size: 10px;
-  color: rgba(242, 242, 244, 0.48);
+  color: @notch_muted;
 }
 
 .mail-reader,
@@ -714,12 +733,92 @@ scale.vol slider {
 }
 
 .mail-reader label {
-  color: #f2f2f4;
+  color: @notch_text;
 }
 
 .mail-composer textview,
 .mail-composer textview text {
-  color: #f2f2f4;
+  color: @notch_text;
   background: rgba(255, 255, 255, 0.035);
+}
+
+/* ---- screen-time page ---- */
+
+.screen-time-page {
+  min-height: 330px;
+}
+
+.screen-time-summary-card {
+  min-width: 0;
+  min-height: 86px;
+  padding: 12px 14px;
+  background: @notch_card;
+  border: 1px solid @notch_border;
+  border-radius: 14px;
+}
+
+.screen-time-card-title {
+  color: @notch_text;
+  font-size: 12px;
+}
+
+.screen-time-value {
+  color: @notch_text;
+  font-size: 24px;
+  font-weight: 750;
+  font-feature-settings: "tnum";
+}
+
+.screen-time-caption {
+  color: @notch_muted;
+  font-size: 10px;
+}
+
+.screen-time-chart-card {
+  min-height: 225px;
+  padding: 10px 12px 4px;
+  background: @notch_card;
+  border: 1px solid @notch_border;
+  border-radius: 14px;
+}
+
+.screen-time-week-label {
+  color: @notch_muted;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.screen-time-nav-button,
+.stopwatch-reset-button,
+.stopwatch-play-button {
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+  color: @notch_text;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 99px;
+}
+
+.screen-time-nav-button:hover,
+.stopwatch-reset-button:hover,
+.stopwatch-play-button:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.screen-time-privacy {
+  color: @notch_muted;
+  font-size: 10px;
+}
+
+.stopwatch-controls {
+  min-height: 30px;
+}
+
+.stopwatch-value {
+  min-width: 64px;
+  color: @notch_text;
+  font-size: 11px;
+  font-feature-settings: "tnum";
 }
 

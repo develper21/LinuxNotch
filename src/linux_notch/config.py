@@ -32,6 +32,8 @@ DEFAULTS = {
     "opacity": 0.97,
     # 24h clock
     "clock_24h": True,
+    # island palette: one of the keys in ui.theme.PALETTES
+    "notch_theme": "soft_black",
     # closed-notch equalizer input: "auto", "real", or "synthetic"
     "viz_mode": "auto",
     # seconds a peek (volume / battery / notification) stays visible
@@ -48,6 +50,7 @@ DEFAULTS = {
         "bluetooth": True,
         "weather": True,
         "system": True,
+        "screen_time": True,
         "toggles": True,
         "clipboard": True,
         "todos": True,

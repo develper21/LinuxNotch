@@ -112,6 +112,7 @@ sudo apt install gstreamer1.0-pulseaudio  # optional, for real audio sync
 sudo apt install libgtk4-layer-shell0  # optional, when available
 sudo apt install gir1.2-vte-3.91 libvte-2.91-gtk4-0
 sudo apt install python3-opencv python3-numpy  # optional, for face scan
+sudo apt install xprintidle  # optional, for X11 screen-time idle detection
 ```
 
 ### Gmail Mail
@@ -124,6 +125,15 @@ Google password. Linux Notch keeps the App Password in the desktop Secret
 Service keyring and stores only the account address in its settings. The Mail
 page lists unread messages; opening one marks it read. Remote images in HTML
 mail are not loaded.
+
+### Screen Time
+
+Screen Time records only active desktop duration, grouped by local calendar
+day; it does not record keyboard input, screenshots, or application names.
+Tracking pauses after five minutes of inactivity and is stored locally in
+`~/.local/state/linux-notch/screen-time.sqlite3` (or `$XDG_STATE_HOME`).
+GNOME and compatible desktop idle-monitor interfaces are detected
+automatically; X11 can use the optional `xprintidle` package.
 
 Run from the checkout:
 

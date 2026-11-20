@@ -7,11 +7,13 @@ import math
 import cairo
 from gi.repository import Adw, Gdk, GLib, Gtk
 
+from linux_notch.services.screen_time import ScreenTimeService
 from linux_notch.services.sounds import play_sound
 from linux_notch.ui.expanded import Expanded
 from linux_notch.ui.peek import Peek
 from linux_notch.ui.pill import Pill
 from linux_notch.ui.shape import IslandShape, ShapeGeometry
+from linux_notch.ui.theme import ACTIVE as ACTIVE_NOTCH_THEME
 
 CLOSED: ShapeGeometry = {
     "width": 260,
@@ -69,7 +71,7 @@ def _find_monitor(monitors, wanted: str):
 class Island(Gtk.Overlay):
     def __init__(self, cfg: dict, media, power, weather=None, system=None,
                  on_settings=None, clipboard=None, on_terminal_focus=None,
-                 mail_service=None):
+                 mail_service=None, screen_time: ScreenTimeService | None = None):
         super().__init__()
         self.add_css_class("island")
         self.set_halign(Gtk.Align.CENTER)
@@ -91,7 +93,11 @@ class Island(Gtk.Overlay):
         self._animation_end: ShapeGeometry | None = None
 
         opacity = min(1.0, max(0.3, float(cfg.get("opacity", 0.97))))
-        self.shape = IslandShape(CLOSED, opacity)
+        self.shape = IslandShape(
+            CLOSED,
+            opacity,
+            cfg.get("notch_theme", ACTIVE_NOTCH_THEME),
+        )
         self.set_child(self.shape)
 
         self.stack = Gtk.Stack()
@@ -128,6 +134,7 @@ class Island(Gtk.Overlay):
             on_close=self.collapse,
             on_terminal_focus=on_terminal_focus,
             mail_service=mail_service,
+            screen_time=screen_time,
         )
 
         self.stack.add_named(self.pill, "pill")
@@ -284,6 +291,11 @@ class Island(Gtk.Overlay):
             natural_width, natural_height, monitor_width, monitor_height)
 
     def _animate_to(self, target: ShapeGeometry) -> None:
+        fill = "pill" if target in (CLOSED, PEEK) else "island"
+        self.shape.set_palette(
+            self.cfg.get("notch_theme", ACTIVE_NOTCH_THEME),
+            fill,
+        )
         if self._animation is not None:
             self._animation.pause()
             self._animation = None
@@ -352,6 +364,11 @@ class Island(Gtk.Overlay):
         self._set_content_inset(geometry["ear"], geometry["height"])
         self._update_input_region(geometry)
         return True
+
+    def set_theme(self, name: str) -> None:
+        self.cfg["notch_theme"] = name
+        fill = "pill" if self.state != "expanded" else "island"
+        self.shape.set_palette(name, fill)
 
     def _update_input_region(self, geometry: ShapeGeometry) -> None:
         native = self.get_native()

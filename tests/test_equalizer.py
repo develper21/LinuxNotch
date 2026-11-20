@@ -12,6 +12,7 @@ from linux_notch.ui.equalizer import (
     WIDTH,
     dominant_art_palette,
 )
+from linux_notch.ui.theme import EQUALIZER_PALETTE, rgb
 
 
 class EqualizerPaletteTests(unittest.TestCase):
@@ -49,6 +50,10 @@ class EqualizerPaletteTests(unittest.TestCase):
 
     def test_equalizer_size_stays_fixed(self):
         self.assertEqual((WIDTH, HEIGHT), (96, 20))
+        self.assertEqual(
+            DEFAULT_PALETTE,
+            tuple(rgb(color) for color in EQUALIZER_PALETTE),
+        )
 
     def test_external_levels_replace_synthetic_targets_when_available(self):
         equalizer = SimpleNamespace(

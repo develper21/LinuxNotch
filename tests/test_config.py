@@ -29,6 +29,7 @@ class ConfigTest(unittest.TestCase):
 
     def test_defaults_survive_broken_config(self):
         self.assertEqual(config._merge(config.DEFAULTS, {}), config.DEFAULTS)
+        self.assertEqual(config.DEFAULTS["notch_theme"], "soft_black")
 
     def test_todo_list_is_enabled_and_empty_by_default(self):
         merged = config._merge(config.DEFAULTS, {})
@@ -38,6 +39,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(merged["todos"], [])
         self.assertTrue(merged["modules"]["face"])
         self.assertTrue(merged["modules"]["terminal"])
+        self.assertTrue(merged["modules"]["screen_time"])
         self.assertTrue(merged["face_enabled"])
         self.assertEqual(merged["face_threshold"], 0.45)
         self.assertFalse(merged["face_challenge"])

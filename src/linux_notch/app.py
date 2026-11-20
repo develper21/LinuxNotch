@@ -51,10 +51,13 @@ from linux_notch.services.mail import MailService  # noqa: E402
 from linux_notch.services.network import NetworkService  # noqa: E402
 from linux_notch.services.notify import NotifyService  # noqa: E402
 from linux_notch.services.power import PowerService  # noqa: E402
+from linux_notch.services.screen_time import ScreenTimeService  # noqa: E402
 from linux_notch.services.system import SystemService  # noqa: E402
 from linux_notch.services.weather import WeatherService  # noqa: E402
 from linux_notch.services.sounds import play_sound  # noqa: E402
 from linux_notch.ui.island import Island  # noqa: E402
+from linux_notch.ui.theme import ACTIVE as ACTIVE_NOTCH_THEME  # noqa: E402
+from linux_notch.ui.theme import css_definitions  # noqa: E402
 
 CSS_PATH = os.path.join(os.path.dirname(__file__), "ui", "style.css")
 logger = logging.getLogger(__name__)
@@ -72,6 +75,7 @@ class LostIsland(Adw.Application):
         self._backend = None
         self._activity_service: ActivityDBusService | None = None
         self.mail_service = MailService()
+        self.screen_time = ScreenTimeService()
         toggle_terminal = Gio.SimpleAction.new("toggle-terminal", None)
         toggle_terminal.connect("activate", lambda *_: self.toggle_terminal())
         self.add_action(toggle_terminal)
@@ -143,6 +147,7 @@ class LostIsland(Adw.Application):
         play_sound("greeting", self.cfg)
         self._load_css()
         self._build_services()
+        self._sync_screen_time()
         self._build_window()
 
     def _on_activities_changed(self, activities):
@@ -175,7 +180,8 @@ class LostIsland(Adw.Application):
                              on_settings=self.apply_config,
                              clipboard=self.clipboard,
                              on_terminal_focus=self._focus_terminal,
-                             mail_service=self.mail_service)
+                             mail_service=self.mail_service,
+                             screen_time=self.screen_time)
         self._wire_services()
         self.win.set_child(self.island)
         self.win.present()
@@ -197,8 +203,14 @@ class LostIsland(Adw.Application):
         provider = Gtk.CssProvider()
         accent = self.cfg.get("accent", "#ff9f0a")
         with open(CSS_PATH) as f:
-            css = f"@define-color accent {accent};\n" + f.read()
-        provider.load_from_string(css)
+            css = (
+                css_definitions(
+                    self.cfg.get("notch_theme", ACTIVE_NOTCH_THEME),
+                    accent,
+                )
+                + f.read()
+            )
+        provider.load_from_data(css.encode("utf-8"))
         Gtk.StyleContext.add_provider_for_display(
             display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self._css_provider = provider
@@ -220,6 +232,8 @@ class LostIsland(Adw.Application):
             self._backend.attach(self.win, {**self.cfg, "app_id": APP_ID})
         if self.island:
             self.island.set_opacity(float(self.cfg.get("opacity", 0.97)))
+            self.island.set_theme(
+                self.cfg.get("notch_theme", ACTIVE_NOTCH_THEME))
             self.island.pill.mochi.outfit_changed()
             self.island.on_media_changed()
             self.island.expanded.refresh_battery()
@@ -239,7 +253,14 @@ class LostIsland(Adw.Application):
             self.win.destroy()
         self.win = self.island = None
         self._build_services()
+        self._sync_screen_time()
         self._build_window()
+
+    def _sync_screen_time(self):
+        if self.cfg.get("modules", {}).get("screen_time", True):
+            self.screen_time.start()
+        else:
+            self.screen_time.stop()
 
     # -- services ----------------------------------------------------------
 
@@ -319,6 +340,7 @@ class LostIsland(Adw.Application):
         if hasattr(self, "media") and hasattr(self.media, "stop"):
             self.media.stop()
         self.mail_service.stop()
+        self.screen_time.stop()
         if self._activity_service:
             self._activity_service.stop()
             self._activity_service = None

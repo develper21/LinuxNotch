@@ -14,17 +14,15 @@ gi.require_version("GdkPixbuf", "2.0")
 gi.require_version("Gtk", "4.0")
 from gi.repository import GdkPixbuf, GLib, Gtk  # noqa: E402
 
+from linux_notch.ui.theme import EQUALIZER_PALETTE, rgb  # noqa: E402
+
 BAR_COUNT = 14
 SEGMENT_COUNT = 7
 WIDTH = 96
 HEIGHT = 20
 PAUSE_HOLD_SECONDS = 1.5
 PALETTE_TRANSITION_SECONDS = 0.3
-DEFAULT_PALETTE = (
-    (0.95, 0.35, 0.64),
-    (1.0, 0.57, 0.22),
-    (0.2, 0.82, 0.83),
-)
+DEFAULT_PALETTE = tuple(rgb(color) for color in EQUALIZER_PALETTE)
 
 
 def _interpolate_palette(start, end, amount: float):

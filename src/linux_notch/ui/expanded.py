@@ -1,7 +1,7 @@
 """Expanded island with a feature grid and stack-based feature pages.
 
-Every timer here lives only while the card is mapped: the 1 Hz seek tick,
-the 3 s system sampler, the weather request. Unmapping tears it all down.
+Page-specific sampling stops when the card is unmapped. The stopwatch and
+the app-wide Screen Time service keep their own lifecycles.
 """
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import logging
+import time
 import uuid
 
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango
@@ -17,15 +18,20 @@ from linux_notch import config
 from linux_notch.services.clipboard import ClipboardHistoryService
 from linux_notch.services.face_client import FaceDaemonClient
 from linux_notch.services.mail import MailMessage, MailService, MailSummary
+from linux_notch.services.screen_time import ScreenTimeService
 from linux_notch.ui.draw import BatteryRing, pick_icon
 from linux_notch.ui.mochi import MochiWidget, OUTFITS, draw_mochi
+from linux_notch.ui.screen_time import ScreenTimePage
 from linux_notch.ui.terminal import TerminalPage
+from linux_notch.ui.theme import FEATURE_COLORS
 
 logger = logging.getLogger(__name__)
 
 FEATURES = (
     ("clipboard", "Clipboard", "edit-paste-symbolic", "clipboard"),
     ("mail", "Mail", "mail-message-new-symbolic", ""),
+    ("screen_time", "Screen Time", "preferences-system-time-symbolic",
+     "screen_time"),
     ("music", "Music", "audio-x-generic-symbolic", "music"),
     ("system", "Widgets", "view-grid-symbolic", "system"),
     ("todos", "ToDo", "view-list-symbolic", "todos"),
@@ -33,7 +39,7 @@ FEATURES = (
     ("terminal", "Terminal", "utilities-terminal-symbolic", "terminal"),
 )
 HOME_FEATURES = (
-    "clipboard", "mail", "music", "system",
+    "clipboard", "mail", "screen_time", "music", "system",
     "todos", "face", "terminal",
 )
 HOME_FEATURE_COLUMNS = 4
@@ -48,7 +54,8 @@ class Expanded(Gtk.Box):
                  clipboard: ClipboardHistoryService | None = None,
                  on_mochi_changed=None, on_content_changed=None,
                  on_close=None, on_terminal_focus=None,
-                 mail_service: MailService | None = None):
+                 mail_service: MailService | None = None,
+                 screen_time: ScreenTimeService | None = None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.add_css_class("expanded")
         self.cfg = cfg
@@ -63,6 +70,7 @@ class Expanded(Gtk.Box):
         self.on_content_changed = on_content_changed
         self.clipboard = clipboard
         self.mail_service = mail_service
+        self.screen_time = screen_time
 
         self._pos_timer = 0
         self._seek_dragging = False
@@ -72,6 +80,9 @@ class Expanded(Gtk.Box):
         self._selected_mail: MailMessage | None = None
         self._reply_context: MailSummary | None = None
         self._mail_compose_return_view = "inbox"
+        self._stopwatch_elapsed = 0.0
+        self._stopwatch_started_at = 0.0
+        self._stopwatch_timer = 0
 
         self.content = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -105,6 +116,8 @@ class Expanded(Gtk.Box):
         if cfg.get("modules", {}).get("terminal", True):
             self._build_terminal_page()
         self._build_mail_page()
+        if cfg.get("modules", {}).get("screen_time", True):
+            self._build_screen_time_page()
         self._build_features_page()
         self._build_home_page()
         self.page_stack.connect(
@@ -155,6 +168,39 @@ class Expanded(Gtk.Box):
         self.net_chip = _chip("network-wireless-symbolic")
         self.net_chip.set_visible(False)
 
+        self.stopwatch_box = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=3,
+        )
+        self.stopwatch_box.add_css_class("stopwatch-controls")
+        self.stopwatch_start_button = Gtk.Button.new_from_icon_name(
+            "preferences-system-time-symbolic")
+        self.stopwatch_start_button.add_css_class("tab-btn")
+        self.stopwatch_start_button.set_tooltip_text("Start stopwatch")
+        self.stopwatch_start_button.connect(
+            "clicked", self._start_stopwatch)
+        self.stopwatch_value = Gtk.Label(label="00:00:00")
+        self.stopwatch_value.add_css_class("stopwatch-value")
+        self.stopwatch_value.set_visible(False)
+        self.stopwatch_action_button = Gtk.Button.new_from_icon_name(
+            "media-playback-stop-symbolic")
+        self.stopwatch_action_button.add_css_class("tab-btn")
+        self.stopwatch_action_button.set_tooltip_text("Pause stopwatch")
+        self.stopwatch_action_button.set_visible(False)
+        self.stopwatch_action_button.connect(
+            "clicked", self._toggle_stopwatch)
+        self.stopwatch_reset_button = Gtk.Button.new_from_icon_name(
+            "view-refresh-symbolic")
+        self.stopwatch_reset_button.add_css_class("stopwatch-reset-button")
+        self.stopwatch_reset_button.set_tooltip_text("Reset stopwatch")
+        self.stopwatch_reset_button.set_visible(False)
+        self.stopwatch_reset_button.connect(
+            "clicked", self._reset_stopwatch)
+        self.stopwatch_box.append(self.stopwatch_start_button)
+        self.stopwatch_box.append(self.stopwatch_value)
+        self.stopwatch_box.append(self.stopwatch_action_button)
+        self.stopwatch_box.append(self.stopwatch_reset_button)
+
         row.append(self.top_button)
         row.append(self.mail_button)
         row.append(self.add_button)
@@ -162,6 +208,7 @@ class Expanded(Gtk.Box):
         row.append(self.bt_chip)
         row.append(self.net_chip)
         row.append(self.clear_clipboard_button)
+        row.append(self.stopwatch_box)
         row.append(self.volume_button)
         row.append(self.settings_button)
         self.content.append(row)
@@ -207,6 +254,71 @@ class Expanded(Gtk.Box):
         if self.on_content_changed is not None:
             self.on_content_changed()
 
+    def _format_stopwatch(self) -> str:
+        elapsed = self._stopwatch_elapsed
+        if self._stopwatch_timer:
+            elapsed += time.monotonic() - self._stopwatch_started_at
+        total_seconds = max(0, int(elapsed))
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+    def _start_stopwatch(self, *_):
+        if self._stopwatch_timer:
+            return
+        self._stopwatch_started_at = time.monotonic()
+        self.stopwatch_start_button.set_visible(False)
+        self.stopwatch_value.set_visible(True)
+        self.stopwatch_reset_button.set_visible(True)
+        self.stopwatch_action_button.set_icon_name(
+            "media-playback-stop-symbolic")
+        self.stopwatch_action_button.set_tooltip_text("Pause stopwatch")
+        self.stopwatch_action_button.remove_css_class(
+            "stopwatch-play-button")
+        self.stopwatch_action_button.set_visible(True)
+        self._stopwatch_timer = GLib.timeout_add_seconds(
+            1, self._tick_stopwatch)
+        self.stopwatch_value.set_label(self._format_stopwatch())
+        self._resize_content()
+
+    def _toggle_stopwatch(self, *_):
+        if self._stopwatch_timer:
+            self._stopwatch_elapsed += (
+                time.monotonic() - self._stopwatch_started_at)
+            GLib.source_remove(self._stopwatch_timer)
+            self._stopwatch_timer = 0
+            self.stopwatch_action_button.set_icon_name(
+                "media-playback-start-symbolic")
+            self.stopwatch_action_button.set_tooltip_text(
+                "Resume stopwatch")
+            self.stopwatch_action_button.add_css_class(
+                "stopwatch-play-button")
+        else:
+            self._start_stopwatch()
+            return
+        self.stopwatch_value.set_label(self._format_stopwatch())
+        self._resize_content()
+
+    def _tick_stopwatch(self) -> bool:
+        self.stopwatch_value.set_label(self._format_stopwatch())
+        return GLib.SOURCE_CONTINUE
+
+    def _reset_stopwatch(self, *_):
+        if self._stopwatch_timer:
+            GLib.source_remove(self._stopwatch_timer)
+            self._stopwatch_timer = 0
+        self._stopwatch_elapsed = 0.0
+        self._stopwatch_started_at = 0.0
+        self.stopwatch_value.set_label("00:00:00")
+        self.stopwatch_value.set_visible(False)
+        self.stopwatch_reset_button.set_visible(False)
+        self.stopwatch_action_button.set_visible(False)
+        self.stopwatch_action_button.remove_css_class(
+            "stopwatch-play-button")
+        self.stopwatch_start_button.set_visible(True)
+        self.stopwatch_start_button.set_tooltip_text("Start stopwatch")
+        self._resize_content()
+
     def _resize_content(self):
         if self.on_content_changed is not None:
             self.on_content_changed()
@@ -237,6 +349,8 @@ class Expanded(Gtk.Box):
             self.refresh_music_library()
         if name == "mail":
             self._show_mail_page()
+        if name == "screen_time" and hasattr(self, "screen_time_page"):
+            self.screen_time_page.refresh()
         if self.on_content_changed is not None:
             self.on_content_changed()
 
@@ -275,6 +389,10 @@ class Expanded(Gtk.Box):
         content.set_valign(Gtk.Align.CENTER)
         image = Gtk.Image.new_from_icon_name(icon)
         image.set_pixel_size(22)
+        color_key = "system" if feature_id == "system" else feature_id
+        if color_key in FEATURE_COLORS:
+            color_class = "widgets" if color_key == "system" else color_key
+            image.add_css_class(f"feature-icon-{color_class}")
         label = Gtk.Label(label=title)
         label.add_css_class("feature-btn-label")
         label.set_halign(Gtk.Align.CENTER)
@@ -462,6 +580,21 @@ class Expanded(Gtk.Box):
         body.append(self.mail_workspace)
         self._add_feature_page("mail", "Mail", body)
         self._show_mail_page(refresh=False)
+
+    def _build_screen_time_page(self):
+        self.screen_time_page = ScreenTimePage(
+            self.screen_time,
+            on_content_changed=self._resize_screen_time_content,
+        )
+        self._add_feature_page(
+            "screen_time",
+            "Screen Time",
+            self.screen_time_page,
+        )
+
+    def _resize_screen_time_content(self):
+        if self.page_stack.get_visible_child_name() == "screen_time":
+            self._resize_content()
 
     def _build_mail_reader(self):
         reader = Gtk.Box(

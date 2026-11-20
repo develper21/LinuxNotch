@@ -8,6 +8,7 @@ from gi.repository import Adw, Gdk, Gtk
 
 from linux_notch import config
 from linux_notch.services.sounds import SOUND_NAMES, play_sound
+from linux_notch.ui.theme import ACTIVE, PALETTE_LABELS
 
 MODULES = [
     ("music", "Music", "Play local audio files from your music folder"),
@@ -18,6 +19,8 @@ MODULES = [
     ("bluetooth", "Bluetooth", "Connected device chip and peeks"),
     ("weather", "Weather", "Weather tile in the expanded card"),
     ("system", "Widgets", "Add desktop widgets in a future update"),
+    ("screen_time", "Screen Time",
+     "Local active desktop time with a weekly usage chart"),
     ("toggles", "Quick toggles", "Mute, mic, caffeine, screenshot"),
     ("claude_usage", "Claude usage (opt-in)",
      "Reads Claude Code credentials to fetch usage from Anthropic"),
@@ -129,6 +132,24 @@ class SettingsPanel(Gtk.Box):
 
         look = Adw.PreferencesGroup(title="Look")
         look.add_css_class("settings-group")
+        theme = Adw.ComboRow(title="Notch color theme")
+        theme_keys = tuple(PALETTE_LABELS)
+        theme.set_model(Gtk.StringList.new([
+            PALETTE_LABELS[key] for key in theme_keys
+        ]))
+        current_theme = self.cfg.get("notch_theme", ACTIVE)
+        theme.set_selected(
+            theme_keys.index(current_theme)
+            if current_theme in theme_keys
+            else theme_keys.index(ACTIVE)
+        )
+
+        def on_theme_changed(row, _property):
+            self.cfg["notch_theme"] = theme_keys[row.get_selected()]
+            self._apply()
+
+        theme.connect("notify::selected", on_theme_changed)
+        look.add(theme)
         opacity = Adw.SpinRow.new_with_range(30, 100, 5)
         opacity.set_title("Opacity")
         opacity.set_subtitle("Island background transparency, %")

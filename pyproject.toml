@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "A native GTK island for Linux desktops"
 readme = "README.md"
 license = { text = "MIT" }
-authors = [{ name = "Linux Notch contributors" }]
+authors = [{ name = "DVLPR21" }]
 requires-python = ">=3.11"
 dependencies = ["PyGObject>=3.46", "pycairo>=1.20"]
 
@@ -17,6 +17,9 @@ dev = ["ruff>=0.12"]
 face = ["numpy>=1.24", "opencv-python>=4.10.0,<5"]
 
 [project.urls]
+Homepage = "https://github.com/develper21/LinuxNotch"
+Repository = "https://github.com/develper21/LinuxNotch"
+Issues = "https://github.com/develper21/LinuxNotch/issues"
 Upstream = "https://github.com/MarcoZorn/lost-island"
 
 [project.scripts]

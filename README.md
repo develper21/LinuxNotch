@@ -2,8 +2,13 @@
 
 Linux Notch is a GTK4 desktop island, based on the MIT-licensed Lost Island
 v1.7.2 UI and services, with a Linux desktop backend layer and a versioned
-session-bus API for live activities. It is an independent Linux-only project;
-the original Lost Island copyright and MIT license are retained.
+session-bus API for live activities. It is independently maintained; the
+upstream Lost Island copyright and MIT notice are retained alongside Linux
+Notch's own copyright.
+
+Project policies: [Contributing](CONTRIBUTING.md) ·
+[Security](SECURITY.md) · [Copyright](COPYRIGHT.md) ·
+[Third-party notices](THIRD-PARTY-NOTICES.md)
 
 ## What works today
 
@@ -17,9 +22,12 @@ the original Lost Island copyright and MIT license are retained.
 - Animated Mochi character moods, seasonal outfits, and 29 bundled sound
   effects. The collapsed island shows Mochi and a local-playback equalizer;
   choose his outfit from the expanded Mochi feature, and configure sound
-  volume and previews in Settings. The expanded island also includes
-  clipboard history, a local music library, and a ToDo list, plus an optional
-  persistent VTE terminal page.
+  volume and previews in Settings. The Mochi character and bundled sounds are
+  separately copyrighted assets; see
+  [asset attribution](ASSET-ATTRIBUTION.md).
+- Expanded features include a local music library, unread Gmail inbox,
+  ToDo list, weekly Screen Time chart, stopwatch, and optional persistent VTE
+  terminal page.
 - Clipboard history is opt-in, local-only, and paused by default; text and
   bounded image history can be pinned, copied back, or cleared. GTK clipboard
   access depends on desktop permissions, so Wayland monitoring may be limited.
@@ -142,7 +150,7 @@ PYTHONPATH=src python3 -m linux_notch
 PYTHONPATH=src python3 -m linux_notch --version
 ```
 
-Or install using `sudo packaging/install.sh`. The app uses
+Or install using `sudo bash packaging/install.sh`. The app uses
 `~/.config/linux-notch/` and `~/.cache/linux-notch/`; it does not migrate or
 modify Lost Island configuration.
 
@@ -227,11 +235,18 @@ interpreted, and TTL is capped at 24 hours.
 
 ## Development and verification
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for native development dependencies,
+setup, test commands, and the required DCO sign-off for pull requests.
+
 ```sh
-PYTHONPATH=src python3 -m unittest discover -s tests -v
-python3 -m compileall -q src tests
-PYTHONPATH=src python3 -m linux_notch --version
-./packaging/build-deb.sh
+python3 -m venv --system-site-packages .venv
+. .venv/bin/activate
+python -m pip install -e '.[dev]'
+ruff check src tests plugins/examples
+python -m compileall -q src tests
+dbus-run-session -- env PYTHONPATH=src python -m unittest discover -s tests -v
+PYTHONPATH=src python -m linux_notch --version
+bash packaging/build-deb.sh
 ```
 
 Tests for backend selection, capability reporting, event delivery, activity
@@ -239,6 +254,8 @@ validation, bearer-token updates, quotas, and expiration run without a display s
 The GTK app itself needs the native GTK introspection packages and a logged-in
 desktop session. Compositor-specific acceptance checks and current test gaps
 are recorded in the platform support table and ADRs.
+CI runs tests/quality checks independently from the Debian package build; see
+the [GitHub Actions workflows](.github/workflows/).
 
 The PKGBUILD builds a local source archive. Do not publish it to AUR or build
 the RPM spec until a Linux Notch repository/release URL and matching source
@@ -251,10 +268,14 @@ record actual system-library versions for the target distro.
 
 ## License and attribution
 
-The main application is MIT-licensed. It reuses Lost Island v1.7.2, so the
-original MIT notice in [`LICENSE`](LICENSE) is preserved. The GNOME Shell
-extension is separately licensed GPL-2.0-or-later; see its
-[`LICENSE`](gnome-extension/linux-notch@linuxnotch.org/LICENSE). Kasual
-Desktop was used only as an architecture reference; no Kasual code is copied.
-The Mochi character and sound effects are separate copyrighted assets included
-under separate permission; see [`ASSET-ATTRIBUTION.md`](ASSET-ATTRIBUTION.md).
+The main application code is MIT-licensed; see [`LICENSE`](LICENSE) and
+[`COPYRIGHT.md`](COPYRIGHT.md). The GNOME Shell extension is separately
+licensed GPL-2.0-or-later; see its
+[`LICENSE`](gnome-extension/linux-notch@linuxnotch.org/LICENSE). The Mochi
+character and sound effects are not covered by the application MIT license;
+their separate attribution and permitted project use are documented in
+[`ASSET-ATTRIBUTION.md`](ASSET-ATTRIBUTION.md). Third-party dependencies and
+models are listed in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) and
+the [SPDX inventory](packaging/sbom.spdx.json). Contributions retain their
+authors' copyright and require DCO sign-off; see
+[`CONTRIBUTING.md`](CONTRIBUTING.md).

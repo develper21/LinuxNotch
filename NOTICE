@@ -1,0 +1,9 @@
+Linux Notch includes and derives from third-party software and assets. The
+main application is MIT-licensed subject to upstream notices. The GNOME
+Shell extension has a separate GPL-2.0-or-later license. The Mochi character
+and bundled sound assets are not covered by the main application's MIT
+license.
+
+See THIRD-PARTY-NOTICES.md, COPYRIGHT.md, ASSET-ATTRIBUTION.md, and
+packaging/sbom.spdx.json for component-specific attribution and license
+information. Preserve applicable notices when redistributing.

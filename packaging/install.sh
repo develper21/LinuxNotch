@@ -60,8 +60,6 @@ chmod 755 "$PREFIX/bin/linux-notch" "$PREFIX/bin/notchctl" \
 sed "s|^Exec=linux-notch$|Exec=$PREFIX/bin/linux-notch|" \
   "$ROOT/data/linux-notch.desktop" \
   > /usr/share/applications/linux-notch.desktop
-install -Dm644 "$ROOT/data/linux-notch.svg" \
-  /usr/share/icons/hicolor/scalable/apps/linux-notch.svg
 sed "s|^ExecStart=/usr/bin/linux-notch$|ExecStart=$PREFIX/bin/linux-notch|" \
   "$ROOT/data/linux-notch.service" \
   > /usr/lib/systemd/user/linux-notch.service
@@ -74,6 +72,11 @@ install -Dm644 "$ROOT/gnome-extension/linux-notch@linuxnotch.org/extension.js" \
   /usr/share/gnome-shell/extensions/linux-notch@linuxnotch.org/extension.js
 install -Dm644 "$ROOT/gnome-extension/linux-notch@linuxnotch.org/LICENSE" \
   /usr/share/gnome-shell/extensions/linux-notch@linuxnotch.org/LICENSE
+install -Dm644 "$ROOT/LICENSE" /usr/share/doc/linux-notch/LICENSE
+install -Dm644 "$ROOT/NOTICE" /usr/share/doc/linux-notch/NOTICE
+install -Dm644 "$ROOT/COPYRIGHT.md" /usr/share/doc/linux-notch/COPYRIGHT.md
+install -Dm644 "$ROOT/THIRD-PARTY-NOTICES.md" \
+  /usr/share/doc/linux-notch/THIRD-PARTY-NOTICES.md
 install -Dm644 "$ROOT/ASSET-ATTRIBUTION.md" \
   /usr/share/doc/linux-notch/ASSET-ATTRIBUTION.md
 

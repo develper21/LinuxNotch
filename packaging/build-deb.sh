@@ -10,7 +10,6 @@ mkdir -p "$ROOT/DEBIAN" dist
 
 mkdir -p "$ROOT/usr/lib/linux-notch" "$ROOT/usr/bin" \
   "$ROOT/usr/share/applications" \
-  "$ROOT/usr/share/icons/hicolor/scalable/apps" \
   "$ROOT/usr/lib/systemd/user" \
   "$ROOT/usr/share/doc/linux-notch" \
   "$ROOT/usr/share/gnome-shell/extensions/linux-notch@linuxnotch.org"
@@ -37,13 +36,14 @@ EOF
 chmod 755 "$ROOT/usr/bin/linux-notch-face-daemon"
 
 cp data/linux-notch.desktop "$ROOT/usr/share/applications/"
-cp data/linux-notch.svg "$ROOT/usr/share/icons/hicolor/scalable/apps/"
 cp data/linux-notch.service "$ROOT/usr/lib/systemd/user/"
 cp data/linux-notch-face.service "$ROOT/usr/lib/systemd/user/"
 cp data/linux-notch-autostart.desktop "$ROOT/usr/share/doc/linux-notch/"
 cp -r gnome-extension/linux-notch@linuxnotch.org/. \
   "$ROOT/usr/share/gnome-shell/extensions/linux-notch@linuxnotch.org/"
 cp LICENSE "$ROOT/usr/share/doc/linux-notch/copyright"
+cp NOTICE COPYRIGHT.md THIRD-PARTY-NOTICES.md \
+  "$ROOT/usr/share/doc/linux-notch/"
 cp ASSET-ATTRIBUTION.md "$ROOT/usr/share/doc/linux-notch/"
 cp gnome-extension/linux-notch@linuxnotch.org/LICENSE \
   "$ROOT/usr/share/doc/linux-notch/gnome-extension-license"
@@ -56,8 +56,8 @@ Priority: optional
 Architecture: all
 Depends: python3 (>= 3.11), python3-gi, python3-gi-cairo, python3-cairo, gir1.2-gtk-4.0, gir1.2-adw-1, gir1.2-secret-1, pulseaudio-utils, gir1.2-gstreamer-1.0, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good
 Recommends: gnome-keyring, libgtk4-layer-shell0, network-manager, upower, gir1.2-vte-3.91, libvte-2.91-gtk4-0, gstreamer1.0-pulseaudio, python3-opencv, python3-numpy
-Maintainer: Linux Notch contributors
-Homepage: https://github.com/MarcoZorn/lost-island
+Maintainer: DVLPR21
+Homepage: https://github.com/develper21/LinuxNotch
 Description: Native island overlay for Linux desktops
  GTK4 island UI with media, notifications, system indicators, and a
  versioned D-Bus API for live activities.

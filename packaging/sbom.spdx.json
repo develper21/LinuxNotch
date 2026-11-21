@@ -16,11 +16,12 @@
       "name": "linux-notch",
       "SPDXID": "SPDXRef-LinuxNotch",
       "versionInfo": "0.1.0",
-      "downloadLocation": "NOASSERTION",
+      "downloadLocation": "https://github.com/develper21/LinuxNotch",
       "filesAnalyzed": false,
       "licenseConcluded": "MIT",
       "licenseDeclared": "MIT",
-      "copyrightText": "Copyright (c) Marco Zorn and Linux Notch contributors"
+      "copyrightText": "Copyright (c) DVLPR21, Marco Zorn, and individual contributors, as applicable",
+      "comment": "MIT applies to source code subject to upstream notices; separately licensed assets and components are listed as distinct packages."
     },
     {
       "name": "PyGObject",
